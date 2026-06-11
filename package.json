@@ -3,12 +3,21 @@
   "private": true,
   "version": "1.0.0",
   "description": "电子药箱管理应用 - 药品管理、服药记录、提醒与家庭共享",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  },
   "scripts": {
     "dev": "cd client && npm run dev",
     "dev:server": "cd server && npm run dev",
-    "build": "cd client && npm run build",
-    "db:push": "npx prisma db push",
+    "build": "cd client && npm install && cd client && npm run build",
+    "db:push": "cd server && npx prisma db push",
     "db:generate": "npx prisma generate",
-    "db:studio": "npx prisma studio"
+    "db:studio": "npx prisma studio",
+    "postinstall": "prisma generate"
   }
 }
