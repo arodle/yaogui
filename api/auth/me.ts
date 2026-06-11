@@ -1,10 +1,9 @@
-import { NextRequest } from 'next/server'
 import jwt from 'jsonwebtoken'
 import { prisma } from '../_db'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'medicine-cabinet-secret-key'
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const token = req.headers.get('authorization')?.replace('Bearer ', '')
     if (!token) {

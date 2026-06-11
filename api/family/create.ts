@@ -1,9 +1,7 @@
-import { NextRequest } from 'next/server'
 import { prisma, generateInviteCode } from '../_db'
 import { requireAuth } from '../_auth'
 
-// POST /api/family/create
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId } = auth

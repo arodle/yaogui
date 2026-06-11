@@ -1,4 +1,3 @@
-import { NextRequest } from 'next/server'
 import { prisma } from '../_db'
 import { requireAuth } from '../_auth'
 
@@ -8,7 +7,7 @@ async function getUserFamilyId(userId: string): Promise<string | null> {
 }
 
 // GET /api/records
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId } = auth
@@ -40,7 +39,7 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/records
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId } = auth

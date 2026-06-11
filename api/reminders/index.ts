@@ -1,4 +1,3 @@
-import { NextRequest } from 'next/server'
 import { prisma } from '../_db'
 import { requireAuth } from '../_auth'
 
@@ -8,7 +7,7 @@ async function getUserFamilyId(userId: string): Promise<string | null> {
 }
 
 // GET /api/reminders
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId } = auth

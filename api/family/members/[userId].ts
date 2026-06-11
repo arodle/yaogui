@@ -1,14 +1,12 @@
-import { NextRequest } from 'next/server'
 import { prisma } from '../../_db'
 import { requireAuth } from '../../_auth'
 
-// DELETE /api/family/members/[userId]
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Record<string, string> }) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId: currentUserId } = auth
 
-  const { userId: targetUserId } = await params
+  const { userId: targetUserId } = params
 
   if (currentUserId === targetUserId) {
     return new Response(JSON.stringify({ error: '不能移除自己' }), { status: 400, headers: { 'Content-Type': 'application/json' } })

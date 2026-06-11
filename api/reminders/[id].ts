@@ -1,4 +1,3 @@
-import { NextRequest } from 'next/server'
 import { prisma } from '../../_db'
 import { requireAuth } from '../../_auth'
 
@@ -8,11 +7,11 @@ async function getUserFamilyId(userId: string): Promise<string | null> {
 }
 
 // PUT /api/reminders/[id]
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(req: Request, { params }: { params: Record<string, string> }) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId } = auth
-  const { id } = await params
+  const { id } = params
 
   try {
     const familyId = await getUserFamilyId(userId)
@@ -43,11 +42,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 // DELETE /api/reminders/[id]
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Record<string, string> }) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId } = auth
-  const { id } = await params
+  const { id } = params
 
   try {
     const familyId = await getUserFamilyId(userId)

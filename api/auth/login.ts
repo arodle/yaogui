@@ -1,9 +1,8 @@
-import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../_db'
 import { makeToken } from '../_auth'
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const { email, password } = await req.json()
 

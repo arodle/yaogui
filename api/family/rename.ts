@@ -1,9 +1,7 @@
-import { NextRequest } from 'next/server'
 import { prisma } from '../_db'
 import { requireAuth } from '../_auth'
 
-// PUT /api/family/rename
-export async function PUT(req: NextRequest) {
+export async function PUT(req: Request) {
   const auth = requireAuth(req)
   if (auth instanceof Response) return auth
   const { userId } = auth
