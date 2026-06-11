@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "cd client && npm run dev",
     "dev:server": "cd server && npm run dev",
-    "build": "cd client && npm install && cd client && npm run build",
+    "build": "cd client && npm install && npm run build",
     "db:push": "cd server && npx prisma db push",
     "db:generate": "npx prisma generate",
     "db:studio": "npx prisma studio",
