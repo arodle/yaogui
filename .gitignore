@@ -1,0 +1,37 @@
+node_modules/
+dist/
+dist-ssr/
+
+# 环境变量（含敏感信息，严禁提交）
+.env
+.env.local
+.env.*.local
+*.env
+
+# 日志
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 编辑器 / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 构建与缓存
+.cache/
+.parcel-cache/
+.vite/
+*.tsbuildinfo
+
+# Prisma 迁移产物
+prisma/migrations/

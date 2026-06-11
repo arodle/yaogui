@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  families FamilyMember[]
+
+  @@map("users")
+}
+
+model Family {
+  id         String   @id @default(uuid())
+  name       String
+  inviteCode String   @unique @map("invite_code")
+  createdBy  String   @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  members   FamilyMember[]
+  medicines Medicine[]
+  records   Record[]
+  reminders Reminder[]
+
+  @@map("families")
+}
+
+model FamilyMember {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  familyId  String   @map("family_id")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, familyId])
+  @@map("family_members")
+}
+
+model Medicine {
+  id             String    @id @default(uuid())
+  familyId       String    @map("family_id")
+  name           String
+  category       String
+  diseaseCategory String   @map("disease_category")
+  photo          String?
+  quantity       Int       @default(0) @map("quantity")
+  unit           String
+  expiryDate     DateTime? @map("expiry_date")
+  threshold      Int       @default(10) @map("threshold")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  family    Family     @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  records   Record[]
+  reminders Reminder[]
+
+  @@map("medicines")
+}
+
+model Record {
+  id         String   @id @default(uuid())
+  familyId   String   @map("family_id")
+  medicineId String   @map("medicine_id")
+  takenAt    DateTime @map("taken_at")
+  status     String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  family   Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@map("records")
+}
+
+model Reminder {
+  id         String   @id @default(uuid())
+  familyId   String   @map("family_id")
+  medicineId String   @map("medicine_id")
+  enabled    Boolean  @default(true) @map("enabled")
+  times      Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  family   Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@map("reminders")
+}

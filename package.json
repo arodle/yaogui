@@ -1,0 +1,14 @@
+{
+  "name": "yaogui",
+  "private": true,
+  "version": "1.0.0",
+  "description": "电子药箱管理应用 - 药品管理、服药记录、提醒与家庭共享",
+  "scripts": {
+    "dev": "cd client && npm run dev",
+    "dev:server": "cd server && npm run dev",
+    "build": "cd client && npm run build",
+    "db:push": "npx prisma db push",
+    "db:generate": "npx prisma generate",
+    "db:studio": "npx prisma studio"
+  }
+}
