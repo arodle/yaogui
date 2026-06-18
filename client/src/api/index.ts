@@ -1,168 +1,243 @@
-const DEMO_MODE_KEY = 'medicine-cabinet-demo'
+﻿const DEMO_MODE_KEY = 'medicine-cabinet-demo'
 const DEMO_USER_KEY = 'medicine-cabinet-demo-user'
 const DEMO_TOKEN = 'demo-token'
 const API_BASE = '/api'
-const FAM_STORE = 'demo-families'       // 家庭表
-const MEMBER_STORE = 'demo-members'     // 成员表（userId -> familyId[]）
-const MED_STORE = 'demo-medicines'      // 药品库（带 familyId）
-const REC_STORE = 'demo-records'        // 服药记录
-const REM_STORE = 'demo-reminders'      // 服药提醒
+const FAM_STORE = 'demo-families'
+const MEMBER_STORE = 'demo-members'
+const MED_STORE = 'demo-medicines'
+const REC_STORE = 'demo-records'
+const REM_STORE = 'demo-reminders'
 
-function getDemoUser(): { id: string; email: string; name: string } | null {
+type DemoUser = { id: string; email: string; name: string }
+type DemoFamily = { id: string; name: string; inviteCode: string; createdBy: string; createdAt: string }
+type DemoMember = { userId: string; familyId: string; joinedAt: string; name: string; role: 'owner' | 'member' }
+type DemoMedicine = {
+  id: string
+  familyId: string
+  name: string
+  category: string
+  diseaseCategory: string
+  photo: string | null
+  quantity: number
+  unit: string
+  expiryDate: string | null
+  threshold: number
+  reminderTimes?: string[]
+  createdAt: string
+}
+type DemoReminder = { id: string; familyId: string; medicineId: string; medicineName: string; enabled: boolean; times: string[]; createdAt: string }
+type DemoRecord = {
+  id: string
+  familyId: string
+  medicineId: string
+  medicine: { name: string; unit: string }
+  takenAt: string
+  status: string
+  takenBy: string
+  createdAt: string
+}
+
+function getStore<T>(key: string, fallback: T): T {
+  const raw = localStorage.getItem(key)
+  return raw ? JSON.parse(raw) as T : fallback
+}
+
+function setStore(key: string, value: unknown) {
+  localStorage.setItem(key, JSON.stringify(value))
+}
+
+function genId(prefix = 'id') {
+  return `${prefix}-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`
+}
+
+function genInviteCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  for (let index = 0; index < 6; index += 1) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return code
+}
+
+function getDemoUser(): DemoUser | null {
   const raw = localStorage.getItem(DEMO_USER_KEY)
   return raw ? JSON.parse(raw) : null
 }
 
-function setDemoUser(user: any) {
+function setDemoUser(user: DemoUser) {
   localStorage.setItem(DEMO_USER_KEY, JSON.stringify(user))
+}
+
+function getUserId() {
+  return getDemoUser()?.id ?? null
+}
+
+function getFamilies() {
+  return getStore<DemoFamily[]>(FAM_STORE, [])
+}
+
+function setFamilies(families: DemoFamily[]) {
+  setStore(FAM_STORE, families)
+}
+
+function getMembers() {
+  return getStore<DemoMember[]>(MEMBER_STORE, [])
+}
+
+function setMembers(members: DemoMember[]) {
+  setStore(MEMBER_STORE, members)
+}
+
+function getFamilyById(familyId: string) {
+  return getFamilies().find((family) => family.id === familyId) ?? null
+}
+
+function getFamilyMembers(familyId: string) {
+  return getMembers().filter((member) => member.familyId === familyId)
+}
+
+function getMemberRole(family: DemoFamily, userId: string) {
+  return family.createdBy === userId ? 'owner' : 'member'
+}
+
+function getUserFamilyId(userId: string) {
+  const members = getMembers()
+    .filter((member) => member.userId === userId)
+    .sort((left, right) => right.joinedAt.localeCompare(left.joinedAt))
+  return members[0]?.familyId ?? null
+}
+
+function upsertReminderForMedicine(medicine: DemoMedicine) {
+  const reminders = getStore<DemoReminder[]>(REM_STORE, [])
+  const index = reminders.findIndex((item) => item.medicineId === medicine.id)
+  const times = (medicine.reminderTimes || []).filter(Boolean)
+
+  if (times.length === 0) {
+    if (index >= 0) {
+      reminders.splice(index, 1)
+      setStore(REM_STORE, reminders)
+    }
+    return
+  }
+
+  const nextReminder: DemoReminder = index >= 0
+    ? {
+        ...reminders[index],
+        medicineName: medicine.name,
+        enabled: reminders[index].enabled,
+        times
+      }
+    : {
+        id: genId('rem'),
+        familyId: medicine.familyId,
+        medicineId: medicine.id,
+        medicineName: medicine.name,
+        enabled: true,
+        times,
+        createdAt: new Date().toISOString()
+      }
+
+  if (index >= 0) reminders[index] = nextReminder
+  else reminders.push(nextReminder)
+  setStore(REM_STORE, reminders)
+}
+
+function createFamilyForUser(userId: string, userName: string, email: string) {
+  const familyId = genId('fam')
+  const family: DemoFamily = {
+    id: familyId,
+    name: `${userName || email || '我的'}药箱`,
+    inviteCode: genInviteCode(),
+    createdBy: userId,
+    createdAt: new Date().toISOString()
+  }
+
+  setFamilies([...getFamilies(), family])
+  setMembers([
+    ...getMembers(),
+    {
+      userId,
+      familyId,
+      joinedAt: new Date().toISOString(),
+      name: userName || email || '我',
+      role: 'owner'
+    }
+  ])
+
+  return familyId
+}
+
+function ensureUserHasFamily(userId: string, userName: string, email: string) {
+  return getUserFamilyId(userId) ?? createFamilyForUser(userId, userName, email)
+}
+
+function getActiveFamilyId() {
+  const userId = getUserId()
+  return userId ? getUserFamilyId(userId) : null
+}
+
+function getAuthToken() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('auth-storage') || '{}')
+    return parsed.state?.token || null
+  } catch {
+    return null
+  }
 }
 
 function enableDemo() {
   localStorage.setItem(DEMO_MODE_KEY, '1')
 }
 
-function isDemo(): boolean {
+function isDemo() {
   return localStorage.getItem(DEMO_MODE_KEY) === '1'
 }
 
-function genId(prefix: string = 'id'): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`
-}
-
-function genInviteCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let code = ''
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return code
-}
-
-function getStore(key: string, def: any = []): any {
-  const raw = localStorage.getItem(key)
-  return raw ? JSON.parse(raw) : def
-}
-
-function setStore(key: string, data: any) {
-  localStorage.setItem(key, JSON.stringify(data))
-}
-
-function getUserId(): string | null {
-  const u = getDemoUser()
-  return u ? u.id : null
-}
-
-// ---------- 家庭工具函数 ----------
-function getFamilyMembers(familyId: string): any[] {
-  const members = getStore(MEMBER_STORE, [])
-  return members.filter((m: any) => m.familyId === familyId)
-}
-
-function getUserFamilyId(userId: string): string | null {
-  const members = getStore(MEMBER_STORE, [])
-  const list = members.filter((m: any) => m.userId === userId).sort((a: any, b: any) => a.joinedAt.localeCompare(b.joinedAt))
-  return list.length > 0 ? list[0].familyId : null
-}
-
-function ensureUserHasFamily(userId: string, userName: string, email: string): string {
-  // 若用户已经有家庭，直接返回
-  const existing = getUserFamilyId(userId)
-  if (existing) return existing
-
-  // 否则创建一个家庭（以用户名称命名）
-  const families = getStore(FAM_STORE, [])
-  const familyId = genId('fam')
-  const family = {
-    id: familyId,
-    name: `${userName || email || '我的'}的药箱`,
-    inviteCode: genInviteCode(),
-    createdBy: userId,
-    createdAt: new Date().toISOString()
-  }
-  families.push(family)
-  setStore(FAM_STORE, families)
-
-  const members = getStore(MEMBER_STORE, [])
-  members.push({
-    userId,
-    familyId,
-    joinedAt: new Date().toISOString(),
-    name: userName || email || '我',
-    role: 'owner'
-  })
-  setStore(MEMBER_STORE, members)
-
-  return familyId
-}
-
-// 获取当前活跃家庭：若用户是多个家庭成员，仍取最早加入的一个
-function getActiveFamilyId(): string | null {
-  const userId = getUserId()
-  if (!userId) return null
-  return getUserFamilyId(userId)
-}
-
-function getFamilyById(familyId: string): any {
-  const families = getStore(FAM_STORE, [])
-  return families.find((f: any) => f.id === familyId) || null
-}
-
-// ---------- 演示数据 ----------
 function seedDemoIfEmpty() {
   if (!isDemo()) return
   const user = getDemoUser()
   if (!user) return
 
   const familyId = ensureUserHasFamily(user.id, user.name, user.email)
-  const meds = getStore(MED_STORE, []).filter((m: any) => m.familyId === familyId)
-  if (meds.length > 0) return
+  const existingMeds = getStore<DemoMedicine[]>(MED_STORE, []).filter((medicine) => medicine.familyId === familyId)
+  if (existingMeds.length > 0) return
 
-  const sampleMeds = [
-    { id: genId(), familyId, name: '阿莫西林胶囊', category: 'western', diseaseCategory: 'respiratory', photo: null, quantity: 12, unit: '粒', expiryDate: '2026-12-31', threshold: 5, createdAt: new Date().toISOString() },
-    { id: genId(), familyId, name: '维生素 C 片', category: 'health', diseaseCategory: 'immunity', photo: null, quantity: 30, unit: '片', expiryDate: '2027-06-30', threshold: 10, createdAt: new Date().toISOString() },
-    { id: genId(), familyId, name: '板蓝根颗粒', category: 'chinese', diseaseCategory: 'respiratory', photo: null, quantity: 8, unit: '袋', expiryDate: '2026-10-15', threshold: 5, createdAt: new Date().toISOString() },
-    { id: genId(), familyId, name: '布洛芬缓释胶囊', category: 'western', diseaseCategory: 'pain', photo: null, quantity: 20, unit: '粒', expiryDate: '2027-03-20', threshold: 5, createdAt: new Date().toISOString() },
-    { id: genId(), familyId, name: '复方丹参滴丸', category: 'chinese', diseaseCategory: 'cardiovascular', photo: null, quantity: 60, unit: '粒', expiryDate: '2026-08-30', threshold: 20, createdAt: new Date().toISOString() },
-    { id: genId(), familyId, name: '创可贴', category: 'topical', diseaseCategory: 'trauma', photo: null, quantity: 20, unit: '片', expiryDate: null, threshold: 10, createdAt: new Date().toISOString() }
+  const sampleMeds: DemoMedicine[] = [
+    { id: genId('med'), familyId, name: '阿莫西林胶囊', category: 'western', diseaseCategory: 'respiratory', photo: null, quantity: 12, unit: '粒', expiryDate: '2026-12-31', threshold: 5, createdAt: new Date().toISOString() },
+    { id: genId('med'), familyId, name: '维生素C片', category: 'health', diseaseCategory: 'immunity', photo: null, quantity: 30, unit: '片', expiryDate: '2027-06-30', threshold: 10, createdAt: new Date().toISOString() },
+    { id: genId('med'), familyId, name: '板蓝根颗粒', category: 'chinese', diseaseCategory: 'respiratory', photo: null, quantity: 8, unit: '袋', expiryDate: '2026-10-15', threshold: 5, createdAt: new Date().toISOString() },
+    { id: genId('med'), familyId, name: '布洛芬缓释胶囊', category: 'western', diseaseCategory: 'pain', photo: null, quantity: 20, unit: '粒', expiryDate: '2027-03-20', threshold: 5, createdAt: new Date().toISOString() },
+    { id: genId('med'), familyId, name: '创可贴', category: 'topical', diseaseCategory: 'trauma', photo: null, quantity: 20, unit: '片', expiryDate: null, threshold: 10, createdAt: new Date().toISOString() }
   ]
-  setStore(MED_STORE, [...getStore(MED_STORE, []), ...sampleMeds])
+  setStore(MED_STORE, sampleMeds)
 
-  const reminders = [
-    { id: genId(), familyId, medicineId: sampleMeds[0].id, medicineName: sampleMeds[0].name, enabled: true, times: ['08:00', '20:00'], createdAt: new Date().toISOString() },
-    { id: genId(), familyId, medicineId: sampleMeds[1].id, medicineName: sampleMeds[1].name, enabled: true, times: ['09:00'], createdAt: new Date().toISOString() }
+  const reminders: DemoReminder[] = [
+    { id: genId('rem'), familyId, medicineId: sampleMeds[0].id, medicineName: sampleMeds[0].name, enabled: true, times: ['08:00', '20:00'], createdAt: new Date().toISOString() },
+    { id: genId('rem'), familyId, medicineId: sampleMeds[1].id, medicineName: sampleMeds[1].name, enabled: true, times: ['09:00'], createdAt: new Date().toISOString() }
   ]
-  setStore(REM_STORE, [...getStore(REM_STORE, []), ...reminders])
+  setStore(REM_STORE, reminders)
 
-  const now = new Date()
-  const records = [
-    { id: genId(), familyId, medicineId: sampleMeds[0].id, medicine: { name: sampleMeds[0].name, unit: sampleMeds[0].unit }, takenAt: new Date(now.getTime() - 3600_000).toISOString(), status: 'taken', takenBy: user.name, createdAt: new Date().toISOString() },
-    { id: genId(), familyId, medicineId: sampleMeds[1].id, medicine: { name: sampleMeds[1].name, unit: sampleMeds[1].unit }, takenAt: new Date(now.getTime() - 7200_000).toISOString(), status: 'taken', takenBy: user.name, createdAt: new Date().toISOString() }
+  const records: DemoRecord[] = [
+    { id: genId('rec'), familyId, medicineId: sampleMeds[0].id, medicine: { name: sampleMeds[0].name, unit: sampleMeds[0].unit }, takenAt: new Date(Date.now() - 3600_000).toISOString(), status: 'taken', takenBy: user.name, createdAt: new Date().toISOString() },
+    { id: genId('rec'), familyId, medicineId: sampleMeds[1].id, medicine: { name: sampleMeds[1].name, unit: sampleMeds[1].unit }, takenAt: new Date(Date.now() - 7200_000).toISOString(), status: 'taken', takenBy: user.name, createdAt: new Date().toISOString() }
   ]
-  setStore(REC_STORE, [...getStore(REC_STORE, []), ...records])
+  setStore(REC_STORE, records)
 }
 
-// ---------- API 路由 ----------
-async function request(endpoint: string, options: RequestInit = {}): Promise<any> {
-  // 演示模式 - 使用 localStorage
+async function request(endpoint: string, options: RequestInit = {}) {
   if (isDemo()) {
     return mockRequest(endpoint, options)
   }
 
-  const token = (() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem('auth-storage') || '{}')
-      return parsed.state?.token
-    } catch {
-      return null
-    }
-  })()
+  const token = getAuthToken()
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...options.headers
   }
+
   if (token) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`
+    ;(headers as Record<string, string>).Authorization = `Bearer ${token}`
   }
 
   try {
@@ -172,307 +247,318 @@ async function request(endpoint: string, options: RequestInit = {}): Promise<any
       throw new Error(error.error || '请求失败')
     }
     return response.json()
-  } catch (err) {
-    if (endpoint.startsWith('/auth') || endpoint.startsWith('/family')) {
-      throw err
+  } catch (error) {
+    if (endpoint === '/auth/login' || endpoint === '/auth/register' || endpoint === '/auth/me') {
+      enableDemo()
+      return mockRequest(endpoint, options)
+    }
+
+    if (endpoint.startsWith('/auth') || endpoint.startsWith('/family') || endpoint.startsWith('/ocr')) {
+      throw error
     }
     return mockRequest(endpoint, options)
   }
 }
 
-function mockRequest(endpoint: string, options: RequestInit = {}): any {
-  const body = options.body ? JSON.parse(options.body as string) : {}
+function mockRequest(endpoint: string, options: RequestInit = {}) {
   const method = options.method || 'GET'
-  const userId = getUserId()
+  const body = options.body ? JSON.parse(options.body as string) : {}
+  const user = getDemoUser()
+  const userId = user?.id ?? null
   const familyId = getActiveFamilyId()
 
-  // ---------- Auth ----------
   if (endpoint === '/auth/register') {
-    const user = { id: genId('usr'), email: body.email, name: body.name }
-    setDemoUser(user)
-    // 注册时为用户创建一个家庭
-    ensureUserHasFamily(user.id, user.name, user.email)
-    return { user, token: DEMO_TOKEN }
+    const newUser: DemoUser = { id: genId('usr'), email: body.email, name: body.name }
+    setDemoUser(newUser)
+
+    const inviteCode = String(body.inviteCode || '').trim().toUpperCase()
+    if (inviteCode) {
+      const family = getFamilies().find((item) => item.inviteCode === inviteCode)
+      if (!family) throw new Error('邀请码无效，请确认后重试')
+
+      setMembers([
+        ...getMembers(),
+        {
+          userId: newUser.id,
+          familyId: family.id,
+          joinedAt: new Date().toISOString(),
+          name: newUser.name,
+          role: 'member'
+        }
+      ])
+    } else {
+      ensureUserHasFamily(newUser.id, newUser.name, newUser.email)
+    }
+
+    return { user: newUser, token: DEMO_TOKEN }
   }
 
   if (endpoint === '/auth/login') {
-    const existing = getDemoUser()
-    const user = existing || { id: genId('usr'), email: body.email, name: body.email.split('@')[0] }
-    setDemoUser(user)
-    ensureUserHasFamily(user.id, user.name, user.email)
-    return { user, token: DEMO_TOKEN }
+    const existingUser = getDemoUser()
+    const nextUser = existingUser || { id: genId('usr'), email: body.email, name: String(body.email || '').split('@')[0] || 'demo' }
+    setDemoUser(nextUser)
+    ensureUserHasFamily(nextUser.id, nextUser.name, nextUser.email)
+    return { user: nextUser, token: DEMO_TOKEN }
   }
 
   if (endpoint === '/auth/me') {
-    const user = getDemoUser()
-    if (!user) throw new Error('未登录')
-    const family = familyId ? getFamilyById(familyId) : null
-    const memberCount = familyId ? getFamilyMembers(familyId).length : 1
-    return { user, family, memberCount }
+    if (!user) throw new Error('请先登录')
+    return { user, familyId }
   }
 
   if (!userId) throw new Error('请先登录')
 
-  // ---------- 家庭接口 ----------
   if (endpoint === '/family/my') {
-    const fid = getActiveFamilyId()
-    if (!fid) return { family: null, members: [], medicineCount: 0 }
-    const family = getFamilyById(fid)
-    const members = getFamilyMembers(fid)
-    const meds = getStore(MED_STORE, []).filter((m: any) => m.familyId === fid).length
-    return { family, members, medicineCount: meds }
+    if (!familyId) return { family: null, members: [], medicineCount: 0 }
+    const family = getFamilyById(familyId)
+    const members = getFamilyMembers(familyId)
+    const medicineCount = getStore<DemoMedicine[]>(MED_STORE, []).filter((item) => item.familyId === familyId).length
+    return {
+      family,
+      members: members.map((member) => ({ ...member, role: family ? getMemberRole(family, member.userId) : member.role })),
+      medicineCount,
+      currentUserRole: family ? getMemberRole(family, userId) : 'member'
+    }
   }
 
   if (endpoint === '/family/members') {
-    const fid = getActiveFamilyId()
-    if (!fid) return { members: [] }
-    return { members: getFamilyMembers(fid) }
+    const family = familyId ? getFamilyById(familyId) : null
+    return {
+      members: familyId
+        ? getFamilyMembers(familyId).map((member) => ({ ...member, role: family ? getMemberRole(family, member.userId) : member.role }))
+        : []
+    }
   }
 
   if (endpoint === '/family/create' && method === 'POST') {
-    const user = getDemoUser()!
-    // 用户只能创建新家庭（最多 1 个），如果已有家庭，返回现有
-    const existingFid = getUserFamilyId(user.id)
-    if (existingFid) {
-      return { family: getFamilyById(existingFid), message: '您已经有家庭，无需创建' }
-    }
-    const families = getStore(FAM_STORE, [])
-    const fid = genId('fam')
-    const family = {
-      id: fid,
-      name: (body.name || `${user.name}的药箱`).trim(),
-      inviteCode: genInviteCode(),
-      createdBy: user.id,
-      createdAt: new Date().toISOString()
-    }
-    families.push(family)
-    setStore(FAM_STORE, families)
-
-    const members = getStore(MEMBER_STORE, [])
-    members.push({
-      userId: user.id,
-      familyId: fid,
-      joinedAt: new Date().toISOString(),
-      name: user.name,
-      role: 'owner'
-    })
-    setStore(MEMBER_STORE, members)
-
-    return { family, members: [members[members.length - 1]], message: '家庭创建成功' }
+    const createdFamilyId = createFamilyForUser(userId, user?.name || '', user?.email || '')
+    return { family: getFamilyById(createdFamilyId), message: '家庭创建成功' }
   }
 
   if (endpoint === '/family/join' && method === 'POST') {
-    const user = getDemoUser()!
-    const code = String(body.code || '').toUpperCase().trim()
+    const code = String(body.code || '').trim().toUpperCase()
     if (!code) throw new Error('请输入邀请码')
-    const families = getStore(FAM_STORE, [])
-    const family = families.find((f: any) => f.inviteCode === code)
+
+    const family = getFamilies().find((item) => item.inviteCode === code)
     if (!family) throw new Error('邀请码无效，请确认后重试')
 
-    // 避免重复加入
-    const members = getStore(MEMBER_STORE, [])
-    const existed = members.find((m: any) => m.familyId === family.id && m.userId === user.id)
-    if (!existed) {
-      members.push({
-        userId: user.id,
-        familyId: family.id,
-        joinedAt: new Date().toISOString(),
-        name: user.name,
-        role: 'member'
-      })
-      setStore(MEMBER_STORE, members)
-    }
+    const exists = getMembers().some((member) => member.userId === userId && member.familyId === family.id)
+    if (exists) throw new Error('您已是该家庭成员')
+
+    setMembers([
+      ...getMembers().filter((member) => !(member.userId === userId && member.familyId === family.id)),
+      { userId, familyId: family.id, joinedAt: new Date().toISOString(), name: user?.name || user?.email || '我', role: 'member' }
+    ])
 
     return { family, message: `已成功加入「${family.name}」` }
   }
 
   if (endpoint === '/family/leave' && method === 'POST') {
-    const user = getDemoUser()!
-    const members = getStore(MEMBER_STORE, [])
-    const updated = members.filter((m: any) => !(m.userId === user.id && m.familyId === familyId))
-    setStore(MEMBER_STORE, updated)
-    // 离开后自动为该用户创建新家庭
-    ensureUserHasFamily(user.id, user.name, user.email)
-    return { message: '已退出家庭' }
+    if (!familyId) throw new Error('您当前没有家庭')
+    const currentFamily = getFamilyById(familyId)
+    const familyMembers = getFamilyMembers(familyId)
+    if (currentFamily?.createdBy === userId && familyMembers.length > 1) {
+      throw new Error('请先转移家庭拥有者，再退出家庭')
+    }
+    setMembers(getMembers().filter((member) => !(member.userId === userId && member.familyId === familyId)))
+    const newFamilyId = createFamilyForUser(userId, user?.name || '', user?.email || '')
+    return { family: getFamilyById(newFamilyId), message: '已退出当前家庭' }
   }
 
   if (endpoint === '/family/rename' && method === 'PUT') {
-    const fid = getActiveFamilyId()
-    if (!fid) throw new Error('您暂无家庭')
-    const families = getStore(FAM_STORE, [])
-    const idx = families.findIndex((f: any) => f.id === fid)
-    if (idx < 0) throw new Error('家庭不存在')
-    families[idx] = { ...families[idx], name: (body.name || families[idx].name).trim() }
-    setStore(FAM_STORE, families)
-    return { family: families[idx], message: '已更新家庭名称' }
+    if (!familyId) throw new Error('您当前没有家庭')
+    const families = getFamilies()
+    const familyIndex = families.findIndex((family) => family.id === familyId)
+    if (families[familyIndex]?.createdBy !== userId) throw new Error('只有家庭拥有者可以修改家庭名称')
+    families[familyIndex] = { ...families[familyIndex], name: body.name }
+    setFamilies(families)
+    return { family: families[familyIndex], message: '已更新家庭名称' }
   }
 
   if (endpoint === '/family/regenerate-code' && method === 'POST') {
-    const fid = getActiveFamilyId()
-    if (!fid) throw new Error('您暂无家庭')
-    const families = getStore(FAM_STORE, [])
-    const idx = families.findIndex((f: any) => f.id === fid)
-    if (idx < 0) throw new Error('家庭不存在')
-    families[idx] = { ...families[idx], inviteCode: genInviteCode() }
-    setStore(FAM_STORE, families)
-    return { family: families[idx], message: '邀请码已重置' }
+    if (!familyId) throw new Error('您当前没有家庭')
+    const families = getFamilies()
+    const familyIndex = families.findIndex((family) => family.id === familyId)
+    if (families[familyIndex]?.createdBy !== userId) throw new Error('只有家庭拥有者可以重置邀请码')
+    families[familyIndex] = { ...families[familyIndex], inviteCode: genInviteCode() }
+    setFamilies(families)
+    return { family: families[familyIndex], message: '邀请码已重置' }
+  }
+
+  if (endpoint === '/family/transfer-owner' && method === 'POST') {
+    if (!familyId) throw new Error('您当前没有家庭')
+    const targetUserId = String(body.userId || '')
+    if (!targetUserId) throw new Error('请选择新的家庭拥有者')
+
+    const families = getFamilies()
+    const familyIndex = families.findIndex((family) => family.id === familyId)
+    if (families[familyIndex]?.createdBy !== userId) throw new Error('只有家庭拥有者可以转移权限')
+    if (!getFamilyMembers(familyId).some((member) => member.userId === targetUserId)) {
+      throw new Error('目标成员不在当前家庭中')
+    }
+
+    families[familyIndex] = { ...families[familyIndex], createdBy: targetUserId }
+    setFamilies(families)
+    return { family: families[familyIndex], message: '已转移家庭拥有者' }
   }
 
   if (endpoint.startsWith('/family/members/') && method === 'DELETE') {
-    const fid = getActiveFamilyId()
-    if (!fid) throw new Error('您暂无家庭')
-    const targetUserId = endpoint.split('/').pop()
-    const members = getStore(MEMBER_STORE, [])
-    const updated = members.filter((m: any) => !(m.familyId === fid && m.userId === targetUserId && m.userId !== userId))
-    setStore(MEMBER_STORE, updated)
+    if (!familyId) throw new Error('您当前没有家庭')
+    const family = getFamilyById(familyId)
+    if (family?.createdBy !== userId) throw new Error('只有家庭拥有者可以移除成员')
+    const targetUserId = endpoint.split('/')[3]
+    setMembers(getMembers().filter((member) => !(member.familyId === familyId && member.userId === targetUserId && member.userId !== userId)))
     return { message: '已移除成员' }
   }
 
-  // ---------- Medicines ----------
   if (endpoint === '/medicines' && method === 'GET') {
-    const fid = getActiveFamilyId()
-    if (!fid) return { medicines: [] }
-    const items = getStore(MED_STORE, []).filter((m: any) => m.familyId === fid)
-    return { medicines: items }
+    return { medicines: familyId ? getStore<DemoMedicine[]>(MED_STORE, []).filter((item) => item.familyId === familyId) : [] }
+  }
+
+  if (endpoint === '/medicines?action=categories' && method === 'GET') {
+    const medicines = familyId ? getStore<DemoMedicine[]>(MED_STORE, []).filter((item) => item.familyId === familyId) : []
+    return { categories: Array.from(new Set(medicines.map((medicine) => medicine.category).filter(Boolean))) }
   }
 
   if (endpoint === '/medicines' && method === 'POST') {
-    const fid = getActiveFamilyId()
-    if (!fid) throw new Error('您暂无家庭，请先创建或加入家庭')
-    const items = getStore(MED_STORE, [])
-    const medicine = {
+    if (!familyId) throw new Error('您当前没有家庭')
+    const medicines = getStore<DemoMedicine[]>(MED_STORE, [])
+    const medicine: DemoMedicine = {
       id: genId('med'),
-      familyId: fid,
+      familyId,
       name: body.name,
       category: body.category,
       diseaseCategory: body.diseaseCategory,
-      photo: body.photo || null,
+      photo: body.photo ?? null,
       quantity: Number(body.quantity) || 0,
-      unit: body.unit,
-      expiryDate: body.expiryDate || null,
-      threshold: Number(body.threshold) || 10,
-      createdBy: userId,
+      unit: body.unit || '盒',
+      expiryDate: body.expiryDate ?? null,
+      threshold: Number(body.threshold) || 0,
+      reminderTimes: body.reminderTimes || [],
       createdAt: new Date().toISOString()
     }
-    items.push(medicine)
-    setStore(MED_STORE, items)
+    medicines.push(medicine)
+    setStore(MED_STORE, medicines)
+    upsertReminderForMedicine(medicine)
     return { medicine }
   }
 
   if (endpoint.startsWith('/medicines/') && method === 'PUT') {
-    const id = endpoint.split('/')[2]
-    const items = getStore(MED_STORE, [])
-    const idx = items.findIndex((m: any) => m.id === id)
-    if (idx < 0) throw new Error('药品不存在')
-    items[idx] = {
-      ...items[idx],
-      name: body.name ?? items[idx].name,
-      category: body.category ?? items[idx].category,
-      diseaseCategory: body.diseaseCategory ?? items[idx].diseaseCategory,
-      photo: body.photo !== undefined ? body.photo : items[idx].photo,
-      quantity: body.quantity !== undefined ? Number(body.quantity) : items[idx].quantity,
-      unit: body.unit ?? items[idx].unit,
-      expiryDate: body.expiryDate !== undefined ? body.expiryDate : items[idx].expiryDate,
-      threshold: body.threshold !== undefined ? Number(body.threshold) : items[idx].threshold
-    }
-    setStore(MED_STORE, items)
-    return { medicine: items[idx] }
+    const medicineId = endpoint.split('/')[2]
+    const medicines = getStore<DemoMedicine[]>(MED_STORE, [])
+    const index = medicines.findIndex((item) => item.id === medicineId)
+    if (index < 0) throw new Error('药品不存在')
+    medicines[index] = { ...medicines[index], ...body }
+    setStore(MED_STORE, medicines)
+    upsertReminderForMedicine(medicines[index])
+    return { medicine: medicines[index] }
   }
 
-  if (endpoint.startsWith('/medicines/') && method === 'DELETE') {
-    const id = endpoint.split('/')[2]
-    const items = getStore(MED_STORE, []).filter((m: any) => m.id !== id)
-    setStore(MED_STORE, items)
-    // 同时清理相关提醒
-    const reminders = getStore(REM_STORE, []).filter((r: any) => r.medicineId !== id)
-    setStore(REM_STORE, reminders)
+  if (endpoint === '/medicines?action=rename-category' && method === 'PUT') {
+    if (!familyId) throw new Error('您当前没有家庭')
+    const medicines = getStore<DemoMedicine[]>(MED_STORE, [])
+    const updated = medicines.map((medicine) =>
+      medicine.familyId === familyId && medicine.category === body.fromCategory
+        ? { ...medicine, category: body.toCategory }
+        : medicine
+    )
+    setStore(MED_STORE, updated)
     return { success: true }
   }
 
-  // ---------- Records ----------
-  if (endpoint.startsWith('/records') && method === 'GET') {
-    const fid = getActiveFamilyId()
-    if (!fid) return { records: [] }
-    const items = getStore(REC_STORE, [])
-      .filter((r: any) => r.familyId === fid)
-      .sort((a: any, b: any) => new Date(b.takenAt).getTime() - new Date(a.takenAt).getTime())
-    return { records: items }
+  if (endpoint.startsWith('/medicines/') && method === 'DELETE') {
+    const medicineId = endpoint.split('/')[2]
+    setStore(MED_STORE, getStore<DemoMedicine[]>(MED_STORE, []).filter((item) => item.id !== medicineId))
+    setStore(REM_STORE, getStore<DemoReminder[]>(REM_STORE, []).filter((item) => item.medicineId !== medicineId))
+    return { success: true }
+  }
+
+  if (endpoint.startsWith('/medicines?action=delete-category') && method === 'DELETE') {
+    if (!familyId) throw new Error('您当前没有家庭')
+    const url = new URL(`http://local${endpoint}`)
+    const category = url.searchParams.get('category')
+    const medicines = getStore<DemoMedicine[]>(MED_STORE, [])
+    const updated = medicines.map((medicine) =>
+      medicine.familyId === familyId && medicine.category === category
+        ? { ...medicine, category: 'other' }
+        : medicine
+    )
+    setStore(MED_STORE, updated)
+    return { success: true }
+  }
+
+  if (endpoint === '/records' && method === 'GET') {
+    return { records: familyId ? getStore<DemoRecord[]>(REC_STORE, []).filter((item) => item.familyId === familyId) : [] }
   }
 
   if (endpoint === '/records' && method === 'POST') {
-    const fid = getActiveFamilyId()
-    if (!fid) throw new Error('您暂无家庭')
-    const items = getStore(REC_STORE, [])
-    const meds = getStore(MED_STORE, [])
-    const med = meds.find((m: any) => m.id === body.medicineId)
-    const record = {
+    if (!familyId) throw new Error('您当前没有家庭')
+    const medicines = getStore<DemoMedicine[]>(MED_STORE, [])
+    const medicine = medicines.find((item) => item.id === body.medicineId)
+    if (!medicine) throw new Error('药品不存在')
+    const record: DemoRecord = {
       id: genId('rec'),
-      familyId: fid,
+      familyId,
       medicineId: body.medicineId,
-      medicine: med ? { name: med.name, unit: med.unit } : { name: '药品', unit: '片' },
+      medicine: { name: medicine.name, unit: medicine.unit },
       takenAt: body.takenAt,
       status: body.status,
-      takenBy: (getDemoUser()?.name) || '我',
+      takenBy: user?.name || '我',
       createdAt: new Date().toISOString()
     }
-    items.push(record)
-    setStore(REC_STORE, items)
-
-    // 扣减库存
-    if (body.status === 'taken' && med) {
-      const idx = meds.findIndex((m: any) => m.id === body.medicineId)
-      if (idx >= 0) {
-        meds[idx] = { ...meds[idx], quantity: Math.max(0, Number(meds[idx].quantity) - 1) }
-        setStore(MED_STORE, meds)
-      }
-    }
-
+    const records = getStore<DemoRecord[]>(REC_STORE, [])
+    records.push(record)
+    setStore(REC_STORE, records)
     return { record }
   }
 
-  // ---------- Reminders ----------
   if (endpoint === '/reminders' && method === 'GET') {
-    const fid = getActiveFamilyId()
-    if (!fid) return { reminders: [] }
-    const items = getStore(REM_STORE, []).filter((r: any) => r.familyId === fid)
-    return { reminders: items }
+    const medicines = getStore<DemoMedicine[]>(MED_STORE, [])
+    const reminders = familyId ? getStore<DemoReminder[]>(REM_STORE, []).filter((item) => item.familyId === familyId) : []
+    return {
+      reminders: reminders.map((item) => {
+        const medicine = medicines.find((entry) => entry.id === item.medicineId)
+        return {
+          ...item,
+          medicine: medicine
+            ? { name: medicine.name, quantity: medicine.quantity, unit: medicine.unit }
+            : { name: item.medicineName, quantity: 0, unit: '' }
+        }
+      })
+    }
   }
 
   if (endpoint.startsWith('/reminders/') && method === 'PUT') {
-    const id = endpoint.split('/')[2]
-    const items = getStore(REM_STORE, [])
-    const idx = items.findIndex((r: any) => r.id === id)
-    if (idx < 0) throw new Error('提醒不存在')
-    items[idx] = { ...items[idx], ...body }
-    setStore(REM_STORE, items)
-    return { reminder: items[idx] }
+    const reminderId = endpoint.split('/')[2]
+    const reminders = getStore<DemoReminder[]>(REM_STORE, [])
+    const index = reminders.findIndex((item) => item.id === reminderId)
+    if (index < 0) throw new Error('提醒不存在')
+    reminders[index] = { ...reminders[index], ...body }
+    setStore(REM_STORE, reminders)
+    return { reminder: reminders[index] }
   }
 
   if (endpoint.startsWith('/reminders/') && method === 'DELETE') {
-    const id = endpoint.split('/')[2]
-    const items = getStore(REM_STORE, []).filter((r: any) => r.id !== id)
-    setStore(REM_STORE, items)
+    const reminderId = endpoint.split('/')[2]
+    setStore(REM_STORE, getStore<DemoReminder[]>(REM_STORE, []).filter((item) => item.id !== reminderId))
     return { success: true }
   }
 
   return {}
 }
 
-// ---------- 导出 ----------
 export const api = {
   enableDemo,
   isDemo,
   seedDemoIfEmpty,
   getActiveFamilyId,
-
   auth: {
-    register: (email: string, password: string, name: string) =>
-      request('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name }) }),
+    register: (email: string, password: string, name: string, inviteCode?: string) =>
+      request('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name, inviteCode }) }),
     login: (email: string, password: string) =>
       request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
     me: () => request('/auth/me')
   },
-
   family: {
     get: () => request('/family/my'),
     getMembers: () => request('/family/members'),
@@ -481,26 +567,38 @@ export const api = {
     leave: () => request('/family/leave', { method: 'POST', body: JSON.stringify({}) }),
     rename: (name: string) => request('/family/rename', { method: 'PUT', body: JSON.stringify({ name }) }),
     regenerateCode: () => request('/family/regenerate-code', { method: 'POST', body: JSON.stringify({}) }),
+    transferOwner: (userId: string) => request('/family/transfer-owner', { method: 'POST', body: JSON.stringify({ userId }) }),
     removeMember: (userId: string) => request(`/family/members/${userId}`, { method: 'DELETE' })
   },
-
   medicines: {
     list: () => request('/medicines'),
+    listCategories: () => request('/medicines?action=categories'),
+    renameCategory: (fromCategory: string, toCategory: string) =>
+      request('/medicines?action=rename-category', { method: 'PUT', body: JSON.stringify({ fromCategory, toCategory }) }),
+    deleteCategory: (category: string) =>
+      request(`/medicines?action=delete-category&category=${encodeURIComponent(category)}`, { method: 'DELETE' }),
     create: (data: any) => request('/medicines', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: any) => request(`/medicines/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request(`/medicines/${id}`, { method: 'DELETE' })
   },
-
   records: {
     list: (_params?: any) => request('/records'),
     create: (data: { medicineId: string; takenAt: string; status: string }) =>
       request('/records', { method: 'POST', body: JSON.stringify(data) })
   },
-
   reminders: {
     list: () => request('/reminders'),
     update: (id: string, data: { enabled?: boolean; times?: string[] }) =>
       request(`/reminders/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request(`/reminders/${id}`, { method: 'DELETE' })
-  }
+  },
+  uploads: {
+    createPolicy: (data: { fileName?: string; contentType?: string; directory?: string }) =>
+      request('/uploads', { method: 'POST', body: JSON.stringify(data) })
+  },
+  ocr: {
+    parseImage: (data: { imageDataUrl?: string; imageUrl?: string; billText?: string; platform?: string }) =>
+      request('/ocr', { method: 'POST', body: JSON.stringify(data) })
+  },
+  getAuthToken
 }

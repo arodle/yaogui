@@ -1,7 +1,23 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus, Search, Pill, Image as ImageIcon, Camera, Upload, BarChart3, X } from 'lucide-react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import {
+  Plus,
+  Search,
+  Pill,
+  Image as ImageIcon,
+  Camera,
+  Upload,
+  BarChart3,
+  X,
+  Tags,
+  SlidersHorizontal
+} from 'lucide-react'
 import { api } from '../api'
+import { buildCategoryOptions, getCategoryLabel } from '../constants/medicineCategories'
+import { buildDiseaseOptions, getDiseaseMeta } from '../constants/diseaseCategories'
+import { PieChartSummary } from '../components/PieChartSummary'
+import { uploadImageToOss } from '../utils/imageUpload'
 
 interface Medicine {
   id: string
@@ -17,234 +33,177 @@ interface Medicine {
 
 type StatDimension = 'disease' | 'category' | 'stock' | 'expiry'
 
-const categories = [
-  { value: 'all', label: '全部' },
-  { value: 'western', label: '西药' },
-  { value: 'chinese', label: '中药' },
-  { value: 'health', label: '保健品' },
-  { value: 'topical', label: '外用药' },
-  { value: 'other', label: '其他' }
-]
-
-const diseaseCategories = [
-  { value: 'all', label: '全部', icon: '💊' },
-  { value: 'respiratory', label: '呼吸系统', icon: '🫁' },
-  { value: 'cardiovascular', label: '心血管', icon: '❤️' },
-  { value: 'digestive', label: '消化系统', icon: '🤢' },
-  { value: 'pain', label: '疼痛/发热', icon: '🤕' },
-  { value: 'immunity', label: '免疫/保健', icon: '💪' },
-  { value: 'allergy', label: '过敏', icon: '🌸' },
-  { value: 'trauma', label: '外伤', icon: '🩹' },
-  { value: 'diabetes', label: '糖尿病', icon: '💉' },
-  { value: 'sleep', label: '睡眠/神经', icon: '😴' },
-  { value: 'other', label: '其他', icon: '💊' }
-]
-
-const categoryLabels: Record<string, string> = {
-  western: '西药',
-  chinese: '中药',
-  health: '保健品',
-  topical: '外用药',
-  other: '其他'
+const dimensionLabels: Record<StatDimension, string> = {
+  disease: '按疾病分类',
+  category: '按药品分类',
+  stock: '按库存状态',
+  expiry: '按有效期'
 }
 
-const diseaseLabels: Record<string, { label: string; icon: string }> = {
-  respiratory: { label: '呼吸系统', icon: '🫁' },
-  cardiovascular: { label: '心血管', icon: '❤️' },
-  digestive: { label: '消化系统', icon: '🤢' },
-  pain: { label: '疼痛/发热', icon: '🤕' },
-  immunity: { label: '免疫/保健', icon: '💪' },
-  allergy: { label: '过敏', icon: '🌸' },
-  trauma: { label: '外伤', icon: '🩹' },
-  diabetes: { label: '糖尿病', icon: '💉' },
-  sleep: { label: '睡眠/神经', icon: '😴' },
-  other: { label: '其他', icon: '💊' }
-}
-
-const diseaseLabelsShort: Record<string, string> = {
-  respiratory: '呼吸系统',
-  cardiovascular: '心血管',
-  digestive: '消化系统',
-  pain: '疼痛/发热',
-  immunity: '免疫/保健',
-  allergy: '过敏',
-  trauma: '外伤',
-  diabetes: '糖尿病',
-  sleep: '睡眠/神经',
-  other: '其他'
-}
-
-const COLOR_PALETTE = [
-  '#6366F1', // indigo
-  '#EC4899', // pink
-  '#F59E0B', // amber
-  '#22C55E', // green
-  '#06B6D4', // cyan
-  '#8B5CF6', // violet
-  '#F97316', // orange
-  '#EF4444', // red
-  '#10B981', // emerald
-  '#3B82F6'  // blue
-]
+const colorPalette = ['#6366F1', '#EC4899', '#F59E0B', '#22C55E', '#06B6D4', '#8B5CF6']
 
 export function Medicines() {
+  const navigate = useNavigate()
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const albumInputRef = useRef<HTMLInputElement>(null)
+
   const [medicines, setMedicines] = useState<Medicine[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
   const [diseaseCategory, setDiseaseCategory] = useState('all')
+  const [quickFilter, setQuickFilter] = useState('all')
   const [showStats, setShowStats] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [statDimension, setStatDimension] = useState<StatDimension>('disease')
-  const photoInputRef = useRef<HTMLInputElement>(null)
-  const albumInputRef = useRef<HTMLInputElement>(null)
+  const [importUploading, setImportUploading] = useState(false)
+  const [reminderMedicineIds, setReminderMedicineIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    loadMedicines()
+    void loadMedicines()
   }, [])
 
   const loadMedicines = async () => {
     try {
-      const res = await api.medicines.list()
+      const [res, remindersRes] = await Promise.all([
+        api.medicines.list(),
+        api.reminders.list().catch(() => ({ reminders: [] }))
+      ])
       setMedicines(res.medicines || [])
+      setReminderMedicineIds(new Set((remindersRes.reminders || []).map((reminder: any) => reminder.medicineId)))
     } catch (error) {
-      console.error('加载药品失败:', error)
+      console.error('加载药品失败', error)
     } finally {
       setLoading(false)
     }
   }
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
+  const openBillImport = (source?: string) => {
     setShowImport(false)
-    const file = files[0]
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string
-      sessionStorage.setItem('pendingPhoto', dataUrl)
-      window.location.href = '/medicines/add'
-    }
-    reader.readAsDataURL(file)
+    navigate(source ? `/bill-import?source=${source}` : '/bill-import')
   }
 
-  const filteredMedicines = medicines.filter((m) => {
-    const matchesSearch = m.name.toLowerCase().includes(search.toLowerCase())
-    const matchesCategory = category === 'all' || m.category === category
-    const matchesDisease = diseaseCategory === 'all' || m.diseaseCategory === diseaseCategory
-    return matchesSearch && matchesCategory && matchesDisease
-  })
+  const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files
+    if (!files || files.length === 0) return
+
+    const file = files[0]
+    setImportUploading(true)
+    try {
+      const photoUrl = await uploadImageToOss(file, 'medicine-photos')
+      sessionStorage.setItem('pendingPhoto', photoUrl)
+      setShowImport(false)
+      navigate('/medicines/add')
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '图片上传失败')
+    } finally {
+      setImportUploading(false)
+      event.target.value = ''
+    }
+  }
+
+  const filteredMedicines = useMemo(() => {
+    return medicines.filter((medicine) => {
+      const matchesSearch = medicine.name.toLowerCase().includes(search.toLowerCase())
+      const matchesCategory = category === 'all' || medicine.category === category
+      const matchesDisease = diseaseCategory === 'all' || medicine.diseaseCategory === diseaseCategory
+      const expiryDate = medicine.expiryDate ? new Date(medicine.expiryDate) : null
+      const now = new Date()
+      const monthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+      const hasReminder = reminderMedicineIds.has(medicine.id)
+      const matchesQuickFilter =
+        quickFilter === 'all' ||
+        (quickFilter === 'empty' && medicine.quantity <= 0) ||
+        (quickFilter === 'low' && medicine.quantity > 0 && medicine.quantity <= medicine.threshold) ||
+        (quickFilter === 'expiring' && !!expiryDate && expiryDate >= now && expiryDate <= monthLater) ||
+        (quickFilter === 'expired' && !!expiryDate && expiryDate < now) ||
+        (quickFilter === 'withPhoto' && !!medicine.photo) ||
+        (quickFilter === 'noPhoto' && !medicine.photo) ||
+        (quickFilter === 'withReminder' && hasReminder) ||
+        (quickFilter === 'noReminder' && !hasReminder)
+      return matchesSearch && matchesCategory && matchesDisease && matchesQuickFilter
+    })
+  }, [category, diseaseCategory, medicines, quickFilter, reminderMedicineIds, search])
+
+  const quickFilterOptions = useMemo(() => [
+    { value: 'all', label: '全部' },
+    { value: 'low', label: '库存低' },
+    { value: 'empty', label: '已用完' },
+    { value: 'expiring', label: '快到期' },
+    { value: 'expired', label: '已过期' },
+    { value: 'withPhoto', label: '有照片' },
+    { value: 'noPhoto', label: '无照片' },
+    { value: 'withReminder', label: '有提醒' },
+    { value: 'noReminder', label: '无提醒' }
+  ], [])
+
+  const categoryOptions = useMemo(
+    () => [{ value: 'all', label: '全部' }, ...buildCategoryOptions(medicines.map((medicine) => medicine.category))],
+    [medicines]
+  )
+  const diseaseOptions = useMemo(
+    () => [{ value: 'all', label: '全部', icon: '📋' }, ...buildDiseaseOptions(medicines.map((medicine) => medicine.diseaseCategory))],
+    [medicines]
+  )
+
+  const activeFilterCount = [category !== 'all', diseaseCategory !== 'all', quickFilter !== 'all'].filter(Boolean).length
+  const activeFilterSummary = useMemo(() => {
+    const labels = [
+      categoryOptions.find((item) => item.value === category)?.label,
+      diseaseOptions.find((item) => item.value === diseaseCategory)?.label,
+      quickFilterOptions.find((item) => item.value === quickFilter)?.label
+    ].filter((label, index) => label && [category, diseaseCategory, quickFilter][index] !== 'all')
+
+    return labels.length > 0 ? labels.join(' · ') : '全部药品'
+  }, [category, categoryOptions, diseaseCategory, diseaseOptions, quickFilter, quickFilterOptions])
 
   const stats = useMemo(() => {
-    if (medicines.length === 0) return { groups: [], total: 0 }
-    let groups: { key: string; count: number; items: Medicine[] }[] = []
+    const groups = new Map<string, Medicine[]>()
 
-    switch (statDimension) {
-      case 'disease': {
-        const map = new Map<string, Medicine[]>()
-        medicines.forEach((m) => {
-          const key = m.diseaseCategory || 'other'
-          if (!map.has(key)) map.set(key, [])
-          map.get(key)!.push(m)
-        })
-        groups = Array.from(map.entries())
-          .map(([key, items]) => ({ key: diseaseLabelsShort[key] || key, count: items.length, items }))
-          .sort((a, b) => b.count - a.count)
-        break
-      }
-      case 'category': {
-        const map = new Map<string, Medicine[]>()
-        medicines.forEach((m) => {
-          const key = m.category || 'other'
-          if (!map.has(key)) map.set(key, [])
-          map.get(key)!.push(m)
-        })
-        groups = Array.from(map.entries())
-          .map(([key, items]) => ({ key: categoryLabels[key] || key, count: items.length, items }))
-          .sort((a, b) => b.count - a.count)
-        break
-      }
-      case 'stock': {
-        const low = medicines.filter((m) => m.quantity === 0)
-        const warn = medicines.filter((m) => m.quantity > 0 && m.quantity <= m.threshold)
-        const healthy = medicines.filter((m) => m.quantity > m.threshold)
-        groups = [
-          { key: '库存充足', count: healthy.length, items: healthy },
-          { key: '库存不足', count: warn.length, items: warn },
-          { key: '已用完', count: low.length, items: low }
-        ].filter((g) => g.count > 0)
-        break
-      }
-      case 'expiry': {
-        const now = new Date()
-        const monthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
-        const threeMonthLater = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
-        const expired = medicines.filter((m) => m.expiryDate && new Date(m.expiryDate) < now)
-        const soon = medicines.filter((m) => m.expiryDate && new Date(m.expiryDate) >= now && new Date(m.expiryDate) <= monthLater)
-        const medium = medicines.filter((m) => m.expiryDate && new Date(m.expiryDate) > monthLater && new Date(m.expiryDate) <= threeMonthLater)
-        const far = medicines.filter((m) => !m.expiryDate || new Date(m.expiryDate) > threeMonthLater)
-        groups = [
-          { key: '已过期', count: expired.length, items: expired },
-          { key: '1个月内到期', count: soon.length, items: soon },
-          { key: '1-3个月到期', count: medium.length, items: medium },
-          { key: '3个月以上', count: far.length, items: far }
-        ].filter((g) => g.count > 0)
-        break
-      }
+    const pushGroup = (key: string, medicine: Medicine) => {
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)?.push(medicine)
     }
 
-    const total = groups.reduce((s, g) => s + g.count, 0)
-    return { groups, total }
+    if (statDimension === 'disease') {
+      medicines.forEach((medicine) => pushGroup(getDiseaseMeta(medicine.diseaseCategory).label, medicine))
+    } else if (statDimension === 'category') {
+      medicines.forEach((medicine) => pushGroup(getCategoryLabel(medicine.category || 'other'), medicine))
+    } else if (statDimension === 'stock') {
+      medicines.forEach((medicine) => {
+        if (medicine.quantity <= 0) pushGroup('已用完', medicine)
+        else if (medicine.quantity <= medicine.threshold) pushGroup('库存偏低', medicine)
+        else pushGroup('库存充足', medicine)
+      })
+    } else {
+      const now = new Date()
+      const monthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+      const threeMonthLater = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+
+      medicines.forEach((medicine) => {
+        if (!medicine.expiryDate) {
+          pushGroup('未设置有效期', medicine)
+          return
+        }
+
+        const expiryDate = new Date(medicine.expiryDate)
+        if (expiryDate < now) pushGroup('已过期', medicine)
+        else if (expiryDate <= monthLater) pushGroup('30天内到期', medicine)
+        else if (expiryDate <= threeMonthLater) pushGroup('90天内到期', medicine)
+        else pushGroup('有效期充足', medicine)
+      })
+    }
+
+    return Array.from(groups.entries())
+      .map(([label, items]) => ({ label, count: items.length, items }))
+      .sort((left, right) => right.count - left.count)
   }, [medicines, statDimension])
 
-  const pieSlices = useMemo(() => {
-    if (stats.total === 0 || stats.groups.length === 0) return []
-    let startAngle = -Math.PI / 2
-    return stats.groups.map((g, i) => {
-      const portion = g.count / stats.total
-      const angle = portion * Math.PI * 2
-      const endAngle = startAngle + angle
-      const cx = 150, cy = 150, r = 120, innerR = 70
-      const x1 = cx + r * Math.cos(startAngle)
-      const y1 = cy + r * Math.sin(startAngle)
-      const x2 = cx + r * Math.cos(endAngle)
-      const y2 = cy + r * Math.sin(endAngle)
-      const innerX1 = cx + innerR * Math.cos(startAngle)
-      const innerY1 = cy + innerR * Math.sin(startAngle)
-      const innerX2 = cx + innerR * Math.cos(endAngle)
-      const innerY2 = cy + innerR * Math.sin(endAngle)
-      const largeArc = angle > Math.PI ? 1 : 0
-
-      let d: string
-      if (stats.groups.length === 1) {
-        d = `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy} A ${r} ${r} 0 1 1 ${cx - r} ${cy} M ${cx - innerR} ${cy} A ${innerR} ${innerR} 0 1 0 ${cx + innerR} ${cy} A ${innerR} ${innerR} 0 1 0 ${cx - innerR} ${cy} Z`
-      } else {
-        d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${cx} ${cy} M ${cx} ${cy} L ${innerX1} ${innerY1} A ${innerR} ${innerR} 0 ${largeArc} 0 ${innerX2} ${innerY2} Z`
-      }
-
-      startAngle = endAngle
-      return {
-        d,
-        color: COLOR_PALETTE[i % COLOR_PALETTE.length],
-        label: g.key,
-        count: g.count,
-        percentage: portion * 100
-      }
-    })
-  }, [stats])
-
-  const dimensionTabs: { value: StatDimension; label: string; icon: string }[] = [
-    { value: 'disease', label: '疾病分类', icon: '🫁' },
-    { value: 'category', label: '药品类型', icon: '💊' },
-    { value: 'stock', label: '库存状态', icon: '📦' },
-    { value: 'expiry', label: '有效期', icon: '⏰' }
-  ]
-
-  const totalQuantity = medicines.reduce((s, m) => s + m.quantity, 0)
+  const totalQuantity = medicines.reduce((sum, medicine) => sum + medicine.quantity, 0)
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-purple-100 via-pink-50 to-blue-50">
-      {/* 顶部搜索栏 */}
       <div className="sticky top-0 z-10 bg-gradient-to-b from-purple-100 via-purple-50 to-transparent pb-3 pt-2">
         <div className="relative flex items-center gap-2 mb-3">
           <div className="relative flex-1">
@@ -252,64 +211,66 @@ export function Medicines() {
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="搜索药品名称..."
               className="w-full pl-12 pr-4 py-2.5 bg-white/90 rounded-2xl shadow-sm border-0 outline-none focus:ring-2 focus:ring-primary/30 text-sm"
             />
           </div>
           <button
+            onClick={() => setShowFilters(true)}
+            className={`relative p-2.5 rounded-2xl shadow-sm transition-colors ${
+              activeFilterCount > 0 ? 'bg-primary text-white' : 'bg-white/90 text-gray-600 hover:text-primary'
+            }`}
+            title="筛选"
+          >
+            <SlidersHorizontal className="w-5 h-5" />
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setShowStats(true)}
             className="p-2.5 bg-white/90 rounded-2xl shadow-sm text-gray-600 hover:text-primary transition-colors"
-            title="统计"
+            title="查看统计"
           >
             <BarChart3 className="w-5 h-5" />
           </button>
+          <Link
+            to="/medicines/categories"
+            className="p-2.5 bg-white/90 rounded-2xl shadow-sm text-gray-600 hover:text-primary transition-colors"
+            title="分类管理"
+          >
+            <Tags className="w-5 h-5" />
+          </Link>
           <Link to="/medicines/add" className="p-2.5 bg-gradient-to-r from-primary to-secondary rounded-2xl shadow-sm text-white">
             <Plus className="w-5 h-5" />
           </Link>
         </div>
 
-        {/* 筛选标签 */}
-        <div className="flex gap-2 overflow-x-auto pb-1 px-1">
-          {categories.map((cat) => (
+        <div className="flex items-center justify-between rounded-2xl bg-white/70 px-3 py-2 text-xs text-gray-500 shadow-sm">
+          <span className="truncate">{activeFilterSummary}</span>
+          {activeFilterCount > 0 && (
             <button
-              key={cat.value}
-              onClick={() => setCategory(cat.value)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                category === cat.value
-                  ? 'bg-white text-primary shadow'
-                  : 'bg-white/60 text-gray-500'
-              }`}
+              onClick={() => {
+                setCategory('all')
+                setDiseaseCategory('all')
+                setQuickFilter('all')
+              }}
+              className="ml-3 flex-shrink-0 text-primary"
             >
-              {cat.label}
+              清除
             </button>
-          ))}
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto pb-1 px-1 mt-2">
-          {diseaseCategories.slice(0, 6).map((cat) => (
-            <button
-              key={cat.value}
-              onClick={() => setDiseaseCategory(cat.value)}
-              className={`flex items-center gap-1 flex-shrink-0 px-2.5 py-1 rounded-xl text-xs font-medium transition-all ${
-                diseaseCategory === cat.value
-                  ? 'bg-white text-primary shadow'
-                  : 'bg-white/60 text-gray-500'
-              }`}
-            >
-              <span>{cat.icon}</span>
-              {cat.label}
-            </button>
-          ))}
+          )}
         </div>
       </div>
 
-      {/* 主体：药品图片 3 列网格 */}
       <div className="px-3 pb-28">
         {loading ? (
-          <div className="grid grid-cols-3 gap-2.5">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-              <div key={i} className="aspect-square rounded-2xl bg-gray-200 animate-pulse" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[1, 2, 3, 4, 5, 6].map((item) => (
+              <div key={item} className="aspect-square rounded-2xl bg-gray-200 animate-pulse" />
             ))}
           </div>
         ) : filteredMedicines.length === 0 ? (
@@ -317,13 +278,15 @@ export function Medicines() {
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <ImageIcon className="w-10 h-10 text-gray-300" />
             </div>
-            <p className="text-gray-400 text-lg mb-2">暂无药品</p>
-            <p className="text-gray-400 text-sm">点击下方导入药库添加</p>
+            <p className="text-gray-400 text-lg mb-2">暂无匹配的药品</p>
+            <p className="text-gray-400 text-sm">可以新增药品，或调整上面的搜索和筛选条件。</p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {filteredMedicines.map((medicine) => {
-              const diseaseInfo = diseaseLabels[medicine.diseaseCategory] || diseaseLabels.other
+              const diseaseInfo = getDiseaseMeta(medicine.diseaseCategory)
+              const isLowStock = medicine.quantity <= medicine.threshold
+
               return (
                 <Link
                   key={medicine.id}
@@ -331,33 +294,30 @@ export function Medicines() {
                   className="group relative aspect-square rounded-2xl overflow-hidden shadow-sm bg-white hover:shadow-lg transition-all hover:-translate-y-0.5"
                 >
                   {medicine.photo ? (
-                    <img
-                      src={medicine.photo}
-                      alt={medicine.name}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={medicine.photo} alt={medicine.name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
                       <Pill className="w-8 h-8 text-gray-300" />
                     </div>
                   )}
 
-                  {/* 遮罩层 */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-80" />
 
-                  {/* 数量/库存标签 */}
-                  {medicine.quantity <= medicine.threshold && (
+                  {isLowStock && (
                     <div className="absolute top-2 right-2 px-2 py-1 bg-red-500 rounded-lg text-white text-xs font-medium">
-                      低库存
+                      库存低
                     </div>
                   )}
 
-                  {/* 底部名称 */}
                   <div className="absolute bottom-2 left-2 right-2">
                     <p className="text-white font-semibold text-sm truncate">{medicine.name}</p>
                     <div className="flex items-center justify-between mt-1">
-                      <p className="text-white/90 text-xs">{medicine.quantity} {medicine.unit}</p>
-                      <span className="text-white/70 text-xs">{diseaseInfo.icon}</span>
+                      <p className="text-white/90 text-xs">
+                        {medicine.quantity} {medicine.unit}
+                      </p>
+                      <span className="text-white/70 text-xs">
+                        {diseaseInfo.icon} {getCategoryLabel(medicine.category)}
+                      </span>
                     </div>
                   </div>
                 </Link>
@@ -367,29 +327,28 @@ export function Medicines() {
         )}
       </div>
 
-      {/* 底部导入药库按钮 */}
       <div className="fixed bottom-20 left-0 right-0 px-4 z-10">
         <button
           onClick={() => setShowImport(true)}
           className="w-full py-4 bg-white rounded-2xl shadow-lg text-gray-700 font-semibold text-sm flex items-center justify-center gap-2 border border-gray-100 active:bg-gray-50"
         >
           <Upload className="w-5 h-5 text-primary" />
-          导入药库
+          导入药品图片
         </button>
       </div>
 
-      {/* 导入弹窗 */}
       {showImport && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowImport(false)}>
           <div
             className="w-full bg-white rounded-t-3xl p-6 pb-10 animate-[slideUp_0.25s_ease-out]"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6" />
-            <h3 className="text-lg font-bold text-gray-800 text-center mb-6">导入药库</h3>
-            <div className="grid grid-cols-4 gap-4">
+            <h3 className="text-lg font-bold text-gray-800 text-center mb-6">选择导入方式</h3>
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-4">
               <button
                 onClick={() => photoInputRef.current?.click()}
+                disabled={importUploading}
                 className="flex flex-col items-center p-4 rounded-2xl bg-purple-50 active:bg-purple-100 transition-colors"
               >
                 <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm mb-2">
@@ -399,6 +358,7 @@ export function Medicines() {
               </button>
               <button
                 onClick={() => albumInputRef.current?.click()}
+                disabled={importUploading}
                 className="flex flex-col items-center p-4 rounded-2xl bg-blue-50 active:bg-blue-100 transition-colors"
               >
                 <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm mb-2">
@@ -407,51 +367,36 @@ export function Medicines() {
                 <span className="text-sm font-medium text-gray-700">相册</span>
               </button>
               <button
-                onClick={() => {
-                  setShowImport(false)
-                  window.location.href = 'taobao://trade.taobao.com/trade/itemlist/list_bought_items.htm'
-                  setTimeout(() => {
-                    window.location.href = 'https://trade.taobao.com/trade/itemlist/list_bought_items.htm'
-                  }, 1500)
-                }}
+                onClick={() => openBillImport('taobao')}
                 className="flex flex-col items-center p-4 rounded-2xl bg-orange-50 active:bg-orange-100 transition-colors"
               >
                 <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm mb-2">
-                  <span className="text-2xl">🛍️</span>
+                  <span className="text-2xl">🛒</span>
                 </div>
-                <span className="text-sm font-medium text-gray-700">淘宝</span>
+                <span className="text-sm font-medium text-gray-700">淘宝图片</span>
               </button>
               <button
-                onClick={() => {
-                  setShowImport(false)
-                  window.location.href = 'openapp.jdmobile://virtual?params={%22category%22:%22jump%22,%22des%22:%22orderList%22}'
-                  setTimeout(() => {
-                    window.location.href = 'https://order.jd.com/center/list.action'
-                  }, 1500)
-                }}
+                onClick={() => openBillImport('jd')}
                 className="flex flex-col items-center p-4 rounded-2xl bg-red-50 active:bg-red-100 transition-colors"
               >
                 <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm mb-2">
                   <span className="text-2xl">📦</span>
                 </div>
-                <span className="text-sm font-medium text-gray-700">京东</span>
+                <span className="text-sm font-medium text-gray-700">京东图片</span>
               </button>
               <button
-                onClick={() => {
-                  setShowImport(false)
-                  window.location.href = 'pinduoduo://?launch_type=10&target_page=orders'
-                  setTimeout(() => {
-                    window.location.href = 'https://mobile.yangkeduo.com/order.html'
-                  }, 1500)
-                }}
+                onClick={() => openBillImport('pinduoduo')}
                 className="flex flex-col items-center p-4 rounded-2xl bg-green-50 active:bg-green-100 transition-colors"
               >
                 <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm mb-2">
-                  <span className="text-2xl">🍊</span>
+                  <span className="text-2xl">🖼️</span>
                 </div>
-                <span className="text-sm font-medium text-gray-700">拼多多</span>
+                <span className="text-sm font-medium text-gray-700">收藏夹图片</span>
               </button>
             </div>
+            {importUploading && (
+              <p className="mt-4 text-center text-sm text-gray-400">图片上传中...</p>
+            )}
             <input
               ref={photoInputRef}
               type="file"
@@ -471,207 +416,144 @@ export function Medicines() {
         </div>
       )}
 
-      {/* 统计弹窗 */}
-      {showStats && (
-        <div className="fixed inset-0 z-50 bg-gradient-to-b from-purple-100 via-pink-50 to-blue-50 overflow-y-auto">
-          {/* 顶部导航 */}
-          <div className="sticky top-0 z-10 bg-gradient-to-b from-purple-100/95 via-pink-50/95 to-transparent backdrop-blur-sm pt-3 pb-4 px-4">
-            <div className="flex items-center justify-between mb-3">
+      {showFilters && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4" onClick={() => setShowFilters(false)}>
+          <div
+            className="mx-auto mt-16 max-w-2xl rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-800">筛选药品</h2>
               <button
-                onClick={() => setShowStats(false)}
-                className="w-10 h-10 flex items-center justify-center bg-white/80 rounded-xl text-gray-600 shadow-sm"
+                onClick={() => setShowFilters(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600"
               >
                 <X className="w-5 h-5" />
               </button>
-              <h2 className="text-xl font-bold text-gray-800">药品统计</h2>
-              <div className="w-10" />
             </div>
 
-            {/* 顶部两个大数字卡片 */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white/70 backdrop-blur-md rounded-3xl p-5 text-center shadow-sm border border-white/50">
-                <p className="text-gray-500 text-sm mb-1">药品总数</p>
-                <p className="text-3xl font-bold text-gray-800">{medicines.length}件</p>
+            <div className="space-y-5">
+              <div>
+                <p className="mb-2 text-sm font-medium text-gray-600">药品分类</p>
+                <div className="flex flex-wrap gap-2">
+                  {categoryOptions.map((item) => (
+                    <button
+                      key={item.value}
+                      onClick={() => setCategory(item.value)}
+                      className={`px-3 py-2 rounded-xl text-sm font-medium ${
+                        category === item.value ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="bg-white/70 backdrop-blur-md rounded-3xl p-5 text-center shadow-sm border border-white/50">
-                <p className="text-gray-500 text-sm mb-1">库存总量</p>
+
+              <div>
+                <p className="mb-2 text-sm font-medium text-gray-600">疾病分类</p>
+                <div className="flex flex-wrap gap-2">
+                  {diseaseOptions.map((item) => (
+                    <button
+                      key={item.value}
+                      onClick={() => setDiseaseCategory(item.value)}
+                      className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm font-medium ${
+                        diseaseCategory === item.value ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      <span>{item.icon}</span>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-medium text-gray-600">状态</p>
+                <div className="flex flex-wrap gap-2">
+                  {quickFilterOptions.map((item) => (
+                    <button
+                      key={item.value}
+                      onClick={() => setQuickFilter(item.value)}
+                      className={`px-3 py-2 rounded-xl text-sm font-medium ${
+                        quickFilter === item.value ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => {
+                  setCategory('all')
+                  setDiseaseCategory('all')
+                  setQuickFilter('all')
+                }}
+                className="px-4 py-3 rounded-xl bg-gray-100 text-gray-600 font-medium"
+              >
+                重置
+              </button>
+              <button
+                onClick={() => setShowFilters(false)}
+                className="flex-1 rounded-xl bg-primary px-4 py-3 font-medium text-white"
+              >
+                查看 {filteredMedicines.length} 个药品
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStats && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 overflow-y-auto">
+          <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">药品统计</h2>
+              <button
+                onClick={() => setShowStats(false)}
+                className="w-10 h-10 flex items-center justify-center bg-gray-100 rounded-xl text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                <p className="text-sm text-gray-500">药品总数</p>
+                <p className="text-3xl font-bold text-gray-800">{medicines.length}</p>
+              </div>
+              <div className="bg-gray-50 rounded-2xl p-4 text-center">
+                <p className="text-sm text-gray-500">库存总量</p>
                 <p className="text-3xl font-bold text-gray-800">{totalQuantity}</p>
               </div>
             </div>
-          </div>
 
-          {/* 标签切换 */}
-          <div className="px-4 mb-2">
-            <div className="flex gap-6 overflow-x-auto pb-2">
-              {dimensionTabs.map((t) => (
+            <div className="flex gap-2 flex-wrap mb-5">
+              {(Object.keys(dimensionLabels) as StatDimension[]).map((key) => (
                 <button
-                  key={t.value}
-                  onClick={() => setStatDimension(t.value)}
-                  className={`text-lg whitespace-nowrap pb-1 transition-all ${
-                    statDimension === t.value
-                      ? 'text-gray-900 font-bold border-b-2 border-primary'
-                      : 'text-gray-400 font-medium'
+                  key={key}
+                  onClick={() => setStatDimension(key)}
+                  className={`px-3 py-2 rounded-xl text-sm ${
+                    statDimension === key ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'
                   }`}
                 >
-                  {t.label}
+                  {dimensionLabels[key]}
                 </button>
               ))}
             </div>
-          </div>
 
-          {/* 统计内容卡片 */}
-          <div className="px-4 pb-10">
-            {medicines.length === 0 ? (
-              <div className="bg-white/70 backdrop-blur-md rounded-3xl p-10 text-center shadow-sm">
-                <div className="text-5xl mb-3">📊</div>
-                <p className="text-gray-500">添加药品后查看统计</p>
-              </div>
+            {stats.length === 0 ? (
+              <div className="py-12 text-center text-gray-400">还没有可统计的药品数据。</div>
             ) : (
-              <>
-                {/* 饼图卡片 */}
-                <div className="bg-white/70 backdrop-blur-md rounded-3xl p-5 mb-4 shadow-sm">
-                  <h3 className="text-xl font-bold text-gray-800 mb-6">{dimensionTabs.find((t) => t.value === statDimension)?.label}分布</h3>
-
-                  {/* 饼图 + 引出线 */}
-                  <div className="relative w-full max-w-[420px] mx-auto">
-                    <svg width="100%" viewBox="0 0 420 360">
-                      <defs>
-                        <filter id="donutShadow" x="-10%" y="-10%" width="120%" height="120%">
-                          <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.1" />
-                        </filter>
-                      </defs>
-                      {pieSlices.map((slice, i) => {
-                        const cx = 210
-                        const cy = 180
-                        const r = 100
-                        const innerR = 65
-                        const portion = slice.count / stats.total
-                        const angle = portion * Math.PI * 2
-                        // 计算起始角度和结束角度
-                        let startAngle = -Math.PI / 2
-                        for (let j = 0; j < i; j++) {
-                          const p = stats.groups[j].count / stats.total
-                          startAngle += p * Math.PI * 2
-                        }
-                        const endAngle = startAngle + angle
-                        const midAngle = startAngle + angle / 2
-
-                        // 计算弧线路径
-                        const x1 = cx + r * Math.cos(startAngle)
-                        const y1 = cy + r * Math.sin(startAngle)
-                        const x2 = cx + r * Math.cos(endAngle)
-                        const y2 = cy + r * Math.sin(endAngle)
-                        const innerX1 = cx + innerR * Math.cos(startAngle)
-                        const innerY1 = cy + innerR * Math.sin(startAngle)
-                        const innerX2 = cx + innerR * Math.cos(endAngle)
-                        const innerY2 = cy + innerR * Math.sin(endAngle)
-                        const largeArc = angle > Math.PI ? 1 : 0
-
-                        let d: string
-                        if (stats.groups.length === 1) {
-                          d = `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy} A ${r} ${r} 0 1 1 ${cx - r} ${cy} M ${cx - innerR} ${cy} A ${innerR} ${innerR} 0 1 0 ${cx + innerR} ${cy} A ${innerR} ${innerR} 0 1 0 ${cx - innerR} ${cy} Z`
-                        } else {
-                          d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${cx} ${cy} M ${cx} ${cy} L ${innerX1} ${innerY1} A ${innerR} ${innerR} 0 ${largeArc} 0 ${innerX2} ${innerY2} Z`
-                        }
-
-                        // 引出线计算
-                        const lineStartX = cx + (r + 5) * Math.cos(midAngle)
-                        const lineStartY = cy + (r + 5) * Math.sin(midAngle)
-                        const isRight = Math.cos(midAngle) > 0
-                        const horizontalLength = 40
-                        const lineEndX = isRight ? lineStartX + horizontalLength : lineStartX - horizontalLength
-                        const lineEndY = lineStartY + (midAngle > -0.8 && midAngle < 0.8 ? 0 : midAngle > Math.PI - 0.8 && midAngle < Math.PI + 0.8 ? 0 : (midAngle > 0 ? 15 : -15))
-
-                        return (
-                          <g key={i}>
-                            {/* 扇形 */}
-                            <path
-                              d={d}
-                              fill={slice.color}
-                              filter="url(#donutShadow)"
-                              opacity={0.95}
-                            />
-                            {/* 引出线 - 从饼图边缘 */}
-                            {slice.count > 0 && (
-                              <>
-                                <line
-                                  x1={lineStartX}
-                                  y1={lineStartY}
-                                  x2={lineEndX}
-                                  y2={lineEndY}
-                                  stroke={slice.color}
-                                  strokeWidth="1.5"
-                                  opacity={0.7}
-                                />
-                                {/* 文字 */}
-                                <text
-                                  x={isRight ? lineEndX + 5 : lineEndX - 5}
-                                  y={lineEndY - 5}
-                                  textAnchor={isRight ? 'start' : 'end'}
-                                  fontSize="11"
-                                  fontWeight="500"
-                                  fill="#4B5563"
-                                >
-                                  {slice.label}
-                                </text>
-                                <text
-                                  x={isRight ? lineEndX + 5 : lineEndX - 5}
-                                  y={lineEndY + 12}
-                                  textAnchor={isRight ? 'start' : 'end'}
-                                  fontSize="20"
-                                  fontWeight="700"
-                                  fill={slice.color}
-                                >
-                                  {((slice.count / stats.total) * 100).toFixed(2)}%
-                                </text>
-                              </>
-                            )}
-                          </g>
-                        )
-                      })}
-                      {/* 中心圆 - 白色背景 */}
-                      <circle cx="210" cy="180" r="65" fill="white" />
-                      <text x="210" y="170" textAnchor="middle" fontSize="14" fontWeight="600" fill="#6B7280">
-                        {stats.groups.length > 0 && stats.groups[0].key}
-                      </text>
-                      <text x="210" y="200" textAnchor="middle" fontSize="28" fontWeight="700" fill="#1F2937">
-                        {stats.groups.length > 0 && `${stats.groups[0].count}件`}
-                      </text>
-                    </svg>
-                  </div>
-                </div>
-
-                {/* 分类详细列表 */}
-                <div className="bg-white/70 backdrop-blur-md rounded-3xl p-5 shadow-sm">
-                  <div className="space-y-3">
-                    {stats.groups.map((g, i) => {
-                      const slice = pieSlices[i]
-                      const percentage = (g.count / stats.total) * 100
-                      return (
-                        <div key={g.key} className="flex items-center justify-between py-1.5">
-                          <div className="flex items-center gap-2 flex-1">
-                            <span className="text-gray-800 font-medium text-base whitespace-nowrap">{g.key}</span>
-                          </div>
-                          <div className="flex items-center gap-2 flex-1 max-w-[60%] justify-end">
-                            <div className="h-1.5 rounded-full flex-1 max-w-[150px] bg-gray-100 overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all duration-500"
-                                style={{
-                                  width: `${Math.max(percentage, 3)}%`,
-                                  backgroundColor: slice?.color
-                                }}
-                              />
-                            </div>
-                            <span className="text-gray-800 font-semibold text-sm whitespace-nowrap">
-                              {g.count}件
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </>
+              <PieChartSummary
+                items={stats.map((item) => ({ label: item.label, count: item.count }))}
+                total={medicines.length}
+                colors={colorPalette}
+              />
             )}
           </div>
         </div>

@@ -11,6 +11,7 @@ export function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -32,9 +33,9 @@ export function Register() {
     setLoading(true)
 
     try {
-      const data = await api.auth.register(email, password, name)
+      const data = await api.auth.register(email, password, name, inviteCode.trim().toUpperCase())
       setAuth(data.user, data.token)
-      navigate('/')
+      navigate(inviteCode.trim() ? '/family' : '/')
     } catch (err: any) {
       setError(err.message || '注册失败')
     } finally {
@@ -97,6 +98,18 @@ export function Register() {
               className="input-field"
               placeholder="请输入邮箱"
               required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">邀请码（可选）</label>
+            <input
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+              className="input-field uppercase tracking-widest"
+              placeholder="有家人邀请码就填这里"
+              maxLength={8}
             />
           </div>
 

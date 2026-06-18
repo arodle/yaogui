@@ -11,7 +11,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'medicine-cabinet-secret-key'
 function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
-  for (let i = 0; i < 6; i++) {
+  for (let index = 0; index < 6; index += 1) {
     code += chars.charAt(Math.floor(Math.random() * chars.length))
   }
   return code
@@ -19,46 +19,69 @@ function generateInviteCode(): string {
 
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, name } = req.body
+    const { email, password, name, inviteCode } = req.body
 
     if (!email || !password || !name) {
-      return res.status(400).json({ error: '请提供完整的注册信息' })
+      return res.status(400).json({ error: 'Please provide email, password, and name.' })
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } })
-    if (existing) {
-      return res.status(400).json({ error: '该邮箱已被注册' })
+    const existingUser = await prisma.user.findUnique({ where: { email } })
+    if (existingUser) {
+      return res.status(400).json({ error: 'This email is already registered.' })
     }
 
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // 创建用户和家庭
-    const user = await prisma.$transaction(async (tx) => {
-      const newUser = await tx.user.create({
-        data: { email, password: hashedPassword, name }
-      })
+    let user
+    try {
+      user = await prisma.$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
+          data: { email, password: hashedPassword, name }
+        })
 
-      // 创建家庭
-      const family = await tx.family.create({
-        data: {
-          name: `${name}的家庭`,
-          inviteCode: generateInviteCode(),
-          createdBy: newUser.id
+        const normalizedInviteCode = String(inviteCode || '').trim().toUpperCase()
+
+        if (normalizedInviteCode) {
+          const family = await tx.family.findUnique({
+            where: { inviteCode: normalizedInviteCode }
+          })
+
+          if (!family) {
+            throw new Error('INVITE_CODE_NOT_FOUND')
+          }
+
+          await tx.familyMember.create({
+            data: {
+              userId: createdUser.id,
+              familyId: family.id
+            }
+          })
+        } else {
+          const family = await tx.family.create({
+            data: {
+              name: `${name}'s Family`,
+              inviteCode: generateInviteCode(),
+              createdBy: createdUser.id
+            }
+          })
+
+          await tx.familyMember.create({
+            data: {
+              userId: createdUser.id,
+              familyId: family.id
+            }
+          })
         }
+
+        return createdUser
       })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVITE_CODE_NOT_FOUND') {
+        return res.status(404).json({ error: 'Invite code not found.' })
+      }
+      throw error
+    }
 
-      // 添加家庭成员
-      await tx.familyMember.create({
-        data: {
-          userId: newUser.id,
-          familyId: family.id
-        }
-      })
-
-      return newUser
-    })
-
-    // 获取用户家庭信息
     const familyMember = await prisma.familyMember.findFirst({
       where: { userId: user.id },
       include: { family: true }
@@ -66,14 +89,14 @@ router.post('/register', async (req, res) => {
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' })
 
-    res.json({
+    return res.json({
       user: { id: user.id, email: user.email, name: user.name },
       token,
       familyId: familyMember?.familyId
     })
   } catch (error) {
-    console.error('注册错误:', error)
-    res.status(500).json({ error: '服务器错误' })
+    console.error('Registration error:', error)
+    return res.status(500).json({ error: 'Server error.' })
   }
 })
 
@@ -83,15 +106,14 @@ router.post('/login', async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
-      return res.status(401).json({ error: '邮箱或密码错误' })
+      return res.status(401).json({ error: 'Invalid email or password.' })
     }
 
-    const valid = await bcrypt.compare(password, user.password)
-    if (!valid) {
-      return res.status(401).json({ error: '邮箱或密码错误' })
+    const validPassword = await bcrypt.compare(password, user.password)
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid email or password.' })
     }
 
-    // 获取用户家庭ID
     const familyMember = await prisma.familyMember.findFirst({
       where: { userId: user.id },
       include: { family: true }
@@ -99,14 +121,14 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' })
 
-    res.json({
+    return res.json({
       user: { id: user.id, email: user.email, name: user.name },
       token,
       familyId: familyMember?.familyId
     })
   } catch (error) {
-    console.error('登录错误:', error)
-    res.status(500).json({ error: '服务器错误' })
+    console.error('Login error:', error)
+    return res.status(500).json({ error: 'Server error.' })
   }
 })
 
@@ -114,7 +136,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '')
     if (!token) {
-      return res.status(401).json({ error: '未提供认证令牌' })
+      return res.status(401).json({ error: 'Missing auth token.' })
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
@@ -124,18 +146,17 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
     })
 
     if (!user) {
-      return res.status(404).json({ error: '用户不存在' })
+      return res.status(404).json({ error: 'User not found.' })
     }
 
-    // 获取家庭ID
     const familyMember = await prisma.familyMember.findFirst({
       where: { userId: user.id },
-      orderBy: { joinedAt: 'asc' }
+      orderBy: { joinedAt: 'desc' }
     })
 
-    res.json({ user, familyId: familyMember?.familyId })
+    return res.json({ user, familyId: familyMember?.familyId })
   } catch {
-    res.status(401).json({ error: '无效的认证令牌' })
+    return res.status(401).json({ error: 'Invalid auth token.' })
   }
 })
 

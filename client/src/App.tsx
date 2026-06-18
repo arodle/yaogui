@@ -5,9 +5,12 @@ import { Register } from './pages/Register'
 import { Home } from './pages/Home'
 import { Medicines } from './pages/Medicines'
 import { AddMedicine } from './pages/AddMedicine'
+import { CategoryManagement } from './pages/CategoryManagement'
+import { BillImport } from './pages/BillImport'
 import { Records } from './pages/Records'
 import { Reminders } from './pages/Reminders'
 import { Profile } from './pages/Profile'
+import { FamilySharing } from './pages/FamilySharing'
 import { useAuthStore } from './context/AuthContext'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -51,11 +54,12 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/medicines" element={<Medicines />} />
           <Route path="/medicines/add" element={<AddMedicine />} />
+          <Route path="/medicines/categories" element={<CategoryManagement />} />
           <Route path="/medicines/:id" element={<AddMedicine />} />
           <Route path="/records" element={<Records />} />
           <Route path="/reminders" element={<Reminders />} />
-          <Route path="/family" element={<Navigate to="/profile" />} />
-          <Route path="/bill-import" element={<Navigate to="/medicines" />} />
+          <Route path="/family" element={<FamilySharing />} />
+          <Route path="/bill-import" element={<BillImport />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Routes>

@@ -1,6 +1,18 @@
-import { useState, useEffect } from 'react'
+﻿import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  User,
+  Mail,
+  LogOut,
+  Shield,
+  Users,
+  Copy,
+  RefreshCw,
+  Trash2,
+  Home,
+  ArrowRight
+} from 'lucide-react'
 import { useAuthStore } from '../context/AuthContext'
-import { User, Mail, LogOut, Shield, Users, Copy, RefreshCw, Trash2, UserPlus, Home } from 'lucide-react'
 import { api } from '../api'
 
 interface Family {
@@ -16,6 +28,7 @@ interface Member {
   familyId: string
   joinedAt: string
   name: string
+  role?: 'owner' | 'member'
 }
 
 export function Profile() {
@@ -25,37 +38,33 @@ export function Profile() {
   const [medicineCount, setMedicineCount] = useState(0)
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [showFamilyEdit, setShowFamilyEdit] = useState(false)
-  const [newFamilyName, setNewFamilyName] = useState('')
   const [inviteCode, setInviteCode] = useState('')
-  const [isRenaming, setIsRenaming] = useState(false)
+  const [joining, setJoining] = useState(false)
 
   useEffect(() => {
-    loadFamilyInfo()
+    void loadFamilyInfo()
   }, [])
 
   const loadFamilyInfo = async () => {
     try {
-      const [familyRes, membersRes, medsRes] = await Promise.all([
+      const [familyRes, medicinesRes] = await Promise.all([
         api.family.get(),
-        api.family.getMembers(),
         api.medicines.list()
       ])
       setFamily(familyRes.family || null)
-      setMembers(membersRes.members || [])
-      setMedicineCount(medsRes.medicines?.length || 0)
+      setMembers(familyRes.members || [])
+      setMedicineCount(medicinesRes.medicines?.length || 0)
     } catch (error) {
-      console.error('加载家庭信息失败:', error)
+      console.error('加载个人信息失败', error)
     } finally {
       setLoading(false)
     }
   }
 
   const handleLogout = () => {
-    if (confirm('确定要退出登录吗？')) {
-      logout()
-      window.location.href = '/login'
-    }
+    if (!confirm('确定要退出登录吗？')) return
+    logout()
+    window.location.href = '/login'
   }
 
   const handleCopyCode = async () => {
@@ -70,24 +79,22 @@ export function Profile() {
   }
 
   const handleRegenerateCode = async () => {
-    if (!confirm('确定要重新生成邀请码吗？旧邀请码将失效')) return
+    if (!confirm('确定要重置邀请码吗？旧邀请码将失效。')) return
     try {
       const res = await api.family.regenerateCode()
-      if (res.family) {
-        setFamily(res.family)
-      }
-    } catch (error) {
-      console.error('重新生成邀请码失败:', error)
+      if (res.family) setFamily(res.family)
+    } catch (error: any) {
+      alert(error.message || '重置邀请码失败')
     }
   }
 
-  const handleRemoveMember = async (userId: string) => {
+  const handleRemoveMember = async (memberUserId: string) => {
     if (!confirm('确定要移除该成员吗？')) return
     try {
-      await api.family.removeMember(userId)
-      setMembers((prev) => prev.filter((m) => m.userId !== userId))
-    } catch (error) {
-      console.error('移除成员失败:', error)
+      await api.family.removeMember(memberUserId)
+      setMembers((current) => current.filter((member) => member.userId !== memberUserId))
+    } catch (error: any) {
+      alert(error.message || '移除成员失败')
     }
   }
 
@@ -96,49 +103,36 @@ export function Profile() {
       alert('请输入邀请码')
       return
     }
+
     try {
+      setJoining(true)
       await api.family.join(inviteCode.trim().toUpperCase())
-      alert('加入家庭成功')
       setInviteCode('')
       await loadFamilyInfo()
-    } catch (error) {
-      alert('加入失败，请检查邀请码是否正确')
+      alert('已加入新的家庭')
+    } catch (error: any) {
+      alert(error.message || '加入家庭失败')
+    } finally {
+      setJoining(false)
     }
   }
 
   const handleLeaveFamily = async () => {
-    if (!confirm('确定要离开这个家庭吗？离开后您将创建新的独立家庭')) return
+    if (!confirm('确定要退出当前家庭吗？')) return
     try {
       await api.family.leave()
       await loadFamilyInfo()
-    } catch (error) {
-      console.error('离开家庭失败:', error)
+    } catch (error: any) {
+      alert(error.message || '退出家庭失败')
     }
   }
 
-  const handleCreateFamily = async () => {
-    if (!newFamilyName.trim()) {
-      alert('请输入家庭名称')
-      return
-    }
-    try {
-      const res = await api.family.create(newFamilyName.trim())
-      if (res.family) {
-        setFamily(res.family)
-        setNewFamilyName('')
-        setShowFamilyEdit(false)
-        await loadFamilyInfo()
-      }
-    } catch (error) {
-      console.error('创建家庭失败:', error)
-    }
-  }
+  const isOwner = family?.createdBy === user?.id
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold text-text">我的</h1>
 
-      {/* 用户信息 */}
       <div className="card">
         <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100">
           <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center">
@@ -183,217 +177,108 @@ export function Profile() {
         </div>
       </div>
 
-      {/* 家庭共享 */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
+      <div className="card space-y-4">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-primary" />
-            <h3 className="font-medium text-text">家庭共享</h3>
+            <h3 className="font-medium text-text">家庭管理</h3>
           </div>
-          {family && (
-            <button
-              onClick={() => {
-                setNewFamilyName(family.name)
-                setIsRenaming(true)
-                setShowFamilyEdit(true)
-              }}
-              className="text-sm text-primary hover:text-primary/80"
-            >
-              编辑名称
-            </button>
-          )}
+          <Link to="/family" className="text-sm text-primary font-medium flex items-center gap-1">
+            共享管理
+            <ArrowRight className="w-4 h-4" />
+          </Link>
         </div>
 
         {loading ? (
-          <div className="py-8 text-center text-gray-400">加载中...</div>
+          <div className="py-6 text-center text-gray-400">加载中...</div>
         ) : family ? (
-          <div className="space-y-4">
-            {/* 家庭信息 */}
-            <div className="p-4 bg-gradient-to-r from-primary/5 to-secondary/5 rounded-xl">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-                  <Home className="w-6 h-6 text-primary" />
+          <div className="space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-xl bg-gray-50 p-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Home className="w-5 h-5 text-primary" />
                 </div>
-                <div>
-                  <h4 className="font-semibold text-text">{family.name}</h4>
-                  <div className="flex items-center gap-4 text-xs text-gray-400">
-                    <span>{members.length} 位成员</span>
-                    <span>{medicineCount} 种药品</span>
-                  </div>
+                <div className="min-w-0">
+                  <h4 className="font-semibold text-text truncate">{family.name}</h4>
+                  <p className="text-xs text-gray-400">
+                    {members.length} 位成员 · {medicineCount} 个药品 · {isOwner ? '拥有者' : '成员'}
+                  </p>
                 </div>
               </div>
 
-              {/* 邀请码 */}
-              <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100">
-                <div>
-                  <p className="text-xs text-gray-400 mb-1">邀请码</p>
-                  <p className="font-mono font-bold text-lg text-primary tracking-wider">
-                    {family.inviteCode}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCopyCode}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="复制邀请码"
-                  >
-                    {copied ? (
-                      <Copy className="w-4 h-4 text-secondary" />
-                    ) : (
-                      <Copy className="w-4 h-4 text-gray-400" />
-                    )}
-                  </button>
+              <div className="flex items-center gap-2 rounded-lg bg-white border border-gray-100 px-3 py-2">
+                <span className="text-xs text-gray-400">邀请码</span>
+                <span className="font-mono font-bold text-primary tracking-wider">{family.inviteCode}</span>
+                <button
+                  onClick={handleCopyCode}
+                  className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+                  title="复制邀请码"
+                >
+                  <Copy className={`w-4 h-4 ${copied ? 'text-secondary' : 'text-gray-400'}`} />
+                </button>
+                {isOwner && (
                   <button
                     onClick={handleRegenerateCode}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="重新生成"
+                    className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+                    title="重置邀请码"
                   >
                     <RefreshCw className="w-4 h-4 text-gray-400" />
                   </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {members.map((member) => (
+                <div key={member.userId} className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                  <User className="w-4 h-4 text-primary" />
+                  <span className="font-medium text-text">{member.name}</span>
+                  {member.role && <span className="text-xs text-gray-400">{member.role === 'owner' ? '拥有者' : '成员'}</span>}
+                  {isOwner && member.userId !== user?.id && (
+                    <button
+                      onClick={() => handleRemoveMember(member.userId)}
+                      className="text-gray-400 hover:text-red-500"
+                      title="移除成员"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-              </div>
+              ))}
             </div>
 
-            {/* 成员列表 */}
-            <div>
-              <p className="text-sm text-gray-500 mb-3">家庭成员</p>
-              <div className="space-y-2">
-                {members.map((member) => (
-                  <div
-                    key={member.userId}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <User className="w-4 h-4 text-primary" />
-                      </div>
-                      <span className="font-medium text-text">{member.name}</span>
-                    </div>
-                    {member.userId !== user?.id && (
-                      <button
-                        onClick={() => handleRemoveMember(member.userId)}
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="移除成员"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 离开家庭 */}
             <button
               onClick={handleLeaveFamily}
-              className="w-full py-3 text-sm text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+              className="text-sm text-gray-400 hover:text-red-500 transition-colors"
             >
-              离开家庭
+              退出当前家庭
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            {/* 创建家庭 */}
-            <div className="p-4 bg-gray-50 rounded-xl">
-              <p className="text-sm text-gray-500 mb-3">创建您的家庭，邀请家人共同管理药箱</p>
-              {showFamilyEdit ? (
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    value={newFamilyName}
-                    onChange={(e) => setNewFamilyName(e.target.value)}
-                    placeholder="输入家庭名称"
-                    className="input-field text-sm"
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        if (isRenaming) {
-                          try {
-                            const res = await api.family.rename(newFamilyName.trim())
-                            if (res.family) {
-                              setFamily(res.family)
-                            }
-                          } catch (error) {
-                            console.error('修改家庭名称失败:', error)
-                          }
-                        } else {
-                          await handleCreateFamily()
-                        }
-                        setNewFamilyName('')
-                        setShowFamilyEdit(false)
-                        setIsRenaming(false)
-                      }}
-                      className="flex-1 py-2 bg-primary text-white rounded-lg text-sm font-medium"
-                    >
-                      {isRenaming ? '确认修改' : '确认创建'}
-                    </button>
-                    <button
-                      onClick={() => setShowFamilyEdit(false)}
-                      className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm"
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    setShowFamilyEdit(true)
-                    setNewFamilyName('')
-                    setIsRenaming(false)
-                  }}
-                  className="w-full py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
-                >
-                  创建家庭
-                </button>
-              )}
-            </div>
-
-            {/* 加入家庭 */}
-            <div className="p-4 bg-gray-50 rounded-xl">
-              <div className="flex items-center gap-2 mb-3">
-                <UserPlus className="w-4 h-4 text-gray-400" />
-                <p className="text-sm text-gray-500">加入已有家庭</p>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="输入邀请码"
-                  maxLength={6}
-                  className="flex-1 input-field text-sm"
-                />
-                <button
-                  onClick={handleJoinFamily}
-                  className="px-4 py-2 bg-secondary text-white rounded-lg text-sm font-medium"
-                >
-                  加入
-                </button>
-              </div>
-            </div>
+          <div className="text-sm text-gray-400 rounded-xl bg-gray-50 p-4">
+            暂无家庭信息，请填写邀请码加入。
           </div>
         )}
-      </div>
 
-      {/* 健康统计 */}
-      <div className="card">
-        <h3 className="font-medium text-text mb-4">健康统计</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-4 bg-secondary/10 rounded-xl text-center">
-            <p className="text-2xl font-bold text-secondary">0</p>
-            <p className="text-sm text-gray-500">本周服药天数</p>
-          </div>
-          <div className="p-4 bg-primary/10 rounded-xl text-center">
-            <p className="text-2xl font-bold text-primary">0%</p>
-            <p className="text-sm text-gray-500">服药依从性</p>
-          </div>
+        <div className="flex flex-col sm:flex-row gap-2 border-t border-gray-100 pt-4">
+          <input
+            type="text"
+            value={inviteCode}
+            onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
+            placeholder="输入邀请码加入或切换家庭"
+            maxLength={8}
+            className="flex-1 input-field text-sm"
+          />
+          <button
+            onClick={handleJoinFamily}
+            disabled={joining}
+            className="px-4 py-2 bg-secondary text-white rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            {joining ? '加入中...' : '加入家庭'}
+          </button>
         </div>
       </div>
 
-      {/* 退出登录 */}
       <button
         onClick={handleLogout}
         className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-500 rounded-xl font-medium hover:bg-red-100 transition-colors"

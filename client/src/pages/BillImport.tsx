@@ -1,12 +1,13 @@
-import { useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ShoppingCart, Check, Trash2, Plus, Image as ImageIcon,
   FileText, Sparkles, X
 } from 'lucide-react'
 import { api } from '../api'
+import { uploadImageToOss } from '../utils/imageUpload'
 
-type Platform = 'taobao' | 'jd' | 'pinduoduo' | 'douyin'
+type Platform = 'generic' | 'taobao' | 'jd' | 'pinduoduo' | 'douyin'
 
 interface ParsedItem {
   id: string
@@ -18,6 +19,7 @@ interface ParsedItem {
 }
 
 const PLATFORMS: { value: Platform; label: string; color: string; icon: string }[] = [
+  { value: 'generic', label: '通用截图', color: '#7C3AED', icon: '📷' },
   { value: 'taobao', label: '淘宝', color: '#FF6A00', icon: '🛒' },
   { value: 'jd', label: '京东', color: '#E1251B', icon: '📦' },
   { value: 'pinduoduo', label: '拼多多', color: '#E02E24', icon: '🍊' },
@@ -44,14 +46,35 @@ const QUANTITY_PATTERN = /(\d+(?:\.\d+)?)\s*(片|粒|颗|瓶|盒|支|袋|包|ml|
 
 export function BillImport() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [platform, setPlatform] = useState<Platform | null>(null)
   const [step, setStep] = useState<'platform' | 'upload' | 'parse' | 'confirm'>('platform')
   const [photo, setPhoto] = useState<string | null>(null)
   const [billText, setBillText] = useState('')
   const [parsing, setParsing] = useState(false)
+  const [photoUploading, setPhotoUploading] = useState(false)
   const [items, setItems] = useState<ParsedItem[]>([])
   const [saving, setSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const selectedPlatform = platform ? PLATFORMS.find((item) => item.value === platform) : null
+
+  useEffect(() => {
+    const source = searchParams.get('source')
+    if (source && PLATFORMS.some((item) => item.value === source)) {
+      setPlatform(source as Platform)
+      setStep('upload')
+    }
+
+    const pendingPhoto = sessionStorage.getItem('pendingBillPhoto')
+    if (pendingPhoto) {
+      setPhoto(pendingPhoto)
+      sessionStorage.removeItem('pendingBillPhoto')
+      setStep('upload')
+      if (!source) {
+        setPlatform('generic')
+      }
+    }
+  }, [searchParams])
 
   // 解析文本/图片：提取药品
   const parseContent = (text: string) => {
@@ -121,14 +144,19 @@ export function BillImport() {
   }
 
   // 图片处理时，使用内置的识别关键词提示（模拟OCR）
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        setPhoto(ev.target?.result as string)
+      setPhotoUploading(true)
+      try {
+        const photoUrl = await uploadImageToOss(file, 'bill-imports')
+        setPhoto(photoUrl)
+      } catch (error) {
+        alert(error instanceof Error ? error.message : '图片上传失败')
+      } finally {
+        setPhotoUploading(false)
+        e.target.value = ''
       }
-      reader.readAsDataURL(file)
     }
   }
 
@@ -139,7 +167,26 @@ export function BillImport() {
 
     // 如果有文本，以文本为准；否则基于图片尝试提取一些示例
     let parsed: ParsedItem[] = []
-    if (billText.trim()) {
+    if (photo && !api.isDemo()) {
+      try {
+        const result = await api.ocr.parseImage({
+          imageUrl: photo,
+          billText,
+          platform: platform || 'generic'
+        })
+        parsed = (result.items || []).map((item: any, index: number) => ({
+          id: `ocr-${Date.now()}-${index}`,
+          name: item.name,
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || '盒',
+          diseaseCategory: item.diseaseCategory || 'other',
+          category: item.category || 'other'
+        }))
+      } catch (error) {
+        console.error('OCR 识别失败，使用本地文本解析兜底', error)
+      }
+    }
+    if (parsed.length === 0 && billText.trim()) {
       parsed = parseContent(billText)
     }
 
@@ -296,11 +343,11 @@ export function BillImport() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="text-3xl">
-                  {PLATFORMS.find((p) => p.value === platform)?.icon}
+                  {selectedPlatform?.icon}
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-gray-700">
-                    {PLATFORMS.find((p) => p.value === platform)?.label} 订单
+                    {selectedPlatform?.label || '导入截图'} 订单
                   </h2>
                   <p className="text-xs text-gray-400">上传图片或粘贴文本</p>
                 </div>
@@ -364,7 +411,7 @@ export function BillImport() {
 
             <button
               onClick={triggerParse}
-              disabled={parsing || (!photo && !billText.trim())}
+              disabled={parsing || photoUploading || (!photo && !billText.trim())}
               className="w-full btn-primary disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <Sparkles className="w-5 h-5" />

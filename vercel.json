@@ -4,6 +4,20 @@
   "outputDirectory": "client/dist",
   "framework": "vite",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
+    { "source": "/api/auth/register", "destination": "/api/auth?action=register" },
+    { "source": "/api/auth/login", "destination": "/api/auth?action=login" },
+    { "source": "/api/auth/me", "destination": "/api/auth?action=me" },
+    { "source": "/api/family/my", "destination": "/api/family?action=my" },
+    { "source": "/api/family/members/:userId", "destination": "/api/family?action=member-delete&userId=:userId" },
+    { "source": "/api/family/members", "destination": "/api/family?action=members" },
+    { "source": "/api/family/create", "destination": "/api/family?action=create" },
+    { "source": "/api/family/join", "destination": "/api/family?action=join" },
+    { "source": "/api/family/leave", "destination": "/api/family?action=leave" },
+    { "source": "/api/family/rename", "destination": "/api/family?action=rename" },
+    { "source": "/api/family/regenerate-code", "destination": "/api/family?action=regenerate-code" },
+    { "source": "/api/family/transfer-owner", "destination": "/api/family?action=transfer-owner" },
+    { "source": "/api/medicines/:id", "destination": "/api/medicines?id=:id" },
+    { "source": "/api/reminders/:id", "destination": "/api/reminders?id=:id" },
+    { "source": "/((?!api/).*)", "destination": "/" }
   ]
 }

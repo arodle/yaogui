@@ -1,15 +1,15 @@
-import { Router, Response } from 'express'
+﻿import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
+import { createSignedOssReadUrl, normalizeOssStorageUrl } from '../lib/oss.js'
 
 const router = Router()
 const prisma = new PrismaClient()
 
-// 获取用户的家庭ID
 async function getUserFamilyId(userId: string): Promise<string | null> {
   const member = await prisma.familyMember.findFirst({
     where: { userId },
-    orderBy: { joinedAt: 'asc' }
+    orderBy: { joinedAt: 'desc' }
   })
   return member?.familyId || null
 }
@@ -23,14 +23,29 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return res.json({ medicines: [] })
     }
 
+    if (req.query.action === 'categories') {
+      const medicines = await prisma.medicine.findMany({
+        where: { familyId },
+        select: { category: true }
+      })
+      const categories = Array.from(new Set(medicines.map((medicine) => medicine.category).filter(Boolean)))
+      return res.json({ categories })
+    }
+
     const medicines = await prisma.medicine.findMany({
       where: { familyId },
       orderBy: { createdAt: 'desc' }
     })
-    res.json({ medicines })
+
+    return res.json({
+      medicines: medicines.map((medicine) => ({
+        ...medicine,
+        photo: medicine.photo ? createSignedOssReadUrl(medicine.photo) : null
+      }))
+    })
   } catch (error) {
-    console.error('获取药品列表错误:', error)
-    res.status(500).json({ error: '服务器错误' })
+    console.error('Get medicines failed:', error)
+    return res.status(500).json({ error: 'Server error.' })
   }
 })
 
@@ -40,13 +55,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const familyId = await getUserFamilyId(userId)
 
     if (!familyId) {
-      return res.status(400).json({ error: '您暂无家庭' })
+      return res.status(400).json({ error: 'You do not belong to a family.' })
     }
 
     const { name, category, diseaseCategory, photo, quantity, unit, expiryDate, threshold, reminderTimes } = req.body
-
     if (!name || !category || quantity === undefined || !unit) {
-      return res.status(400).json({ error: '请提供完整的药品信息' })
+      return res.status(400).json({ error: 'Please provide complete medicine information.' })
     }
 
     const medicine = await prisma.medicine.create({
@@ -55,7 +69,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         name,
         category,
         diseaseCategory: diseaseCategory || 'other',
-        photo: photo || null,
+        photo: normalizeOssStorageUrl(photo),
         quantity,
         unit,
         expiryDate: expiryDate ? new Date(expiryDate) : null,
@@ -63,7 +77,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     })
 
-    if (reminderTimes && reminderTimes.length > 0) {
+    if (Array.isArray(reminderTimes) && reminderTimes.length > 0) {
       await prisma.reminder.create({
         data: {
           familyId,
@@ -73,10 +87,44 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       })
     }
 
-    res.json({ medicine })
+    return res.json({
+      medicine: {
+        ...medicine,
+        photo: medicine.photo ? createSignedOssReadUrl(medicine.photo) : null
+      }
+    })
   } catch (error) {
-    console.error('添加药品错误:', error)
-    res.status(500).json({ error: '服务器错误' })
+    console.error('Create medicine failed:', error)
+    return res.status(500).json({ error: 'Server error.' })
+  }
+})
+
+router.put('/', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const familyId = await getUserFamilyId(userId)
+    if (!familyId) {
+      return res.status(400).json({ error: 'You do not belong to a family.' })
+    }
+
+    if (req.query.action === 'rename-category') {
+      const { fromCategory, toCategory } = req.body
+      if (!fromCategory || !toCategory) {
+        return res.status(400).json({ error: 'Please provide source and target category names.' })
+      }
+
+      await prisma.medicine.updateMany({
+        where: { familyId, category: fromCategory },
+        data: { category: toCategory }
+      })
+
+      return res.json({ success: true })
+    }
+
+    return res.status(404).json({ error: 'Route not found.' })
+  } catch (error) {
+    console.error('Rename category failed:', error)
+    return res.status(500).json({ error: 'Server error.' })
   }
 })
 
@@ -88,15 +136,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     const { name, category, diseaseCategory, photo, quantity, unit, expiryDate, threshold, reminderTimes } = req.body
 
     if (!familyId) {
-      return res.status(400).json({ error: '您暂无家庭' })
+      return res.status(400).json({ error: 'You do not belong to a family.' })
     }
 
-    const medicine = await prisma.medicine.findFirst({
-      where: { id, familyId }
-    })
-
+    const medicine = await prisma.medicine.findFirst({ where: { id, familyId } })
     if (!medicine) {
-      return res.status(404).json({ error: '药品不存在' })
+      return res.status(404).json({ error: 'Medicine not found.' })
     }
 
     const updated = await prisma.medicine.update({
@@ -105,7 +150,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         name: name ?? medicine.name,
         category: category ?? medicine.category,
         diseaseCategory: diseaseCategory ?? medicine.diseaseCategory,
-        photo: photo !== undefined ? photo : medicine.photo,
+        photo: photo !== undefined ? normalizeOssStorageUrl(photo) : medicine.photo,
         quantity: quantity ?? medicine.quantity,
         unit: unit ?? medicine.unit,
         expiryDate: expiryDate ? new Date(expiryDate) : medicine.expiryDate,
@@ -113,17 +158,72 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       }
     })
 
-    if (reminderTimes) {
-      await prisma.reminder.updateMany({
-        where: { medicineId: id },
-        data: { times: reminderTimes }
-      })
+    if (Array.isArray(reminderTimes)) {
+      if (reminderTimes.length === 0) {
+        await prisma.reminder.deleteMany({
+          where: { medicineId: id, familyId }
+        })
+      } else {
+        const existingReminder = await prisma.reminder.findFirst({
+          where: { medicineId: id, familyId }
+        })
+
+        if (existingReminder) {
+          await prisma.reminder.update({
+            where: { id: existingReminder.id },
+            data: { times: reminderTimes, enabled: true }
+          })
+        } else {
+          await prisma.reminder.create({
+            data: {
+              familyId,
+              medicineId: id,
+              times: reminderTimes,
+              enabled: true
+            }
+          })
+        }
+      }
     }
 
-    res.json({ medicine: updated })
+    return res.json({
+      medicine: {
+        ...updated,
+        photo: updated.photo ? createSignedOssReadUrl(updated.photo) : null
+      }
+    })
   } catch (error) {
-    console.error('更新药品错误:', error)
-    res.status(500).json({ error: '服务器错误' })
+    console.error('Update medicine failed:', error)
+    return res.status(500).json({ error: 'Server error.' })
+  }
+})
+
+router.delete('/', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const familyId = await getUserFamilyId(userId)
+    if (!familyId) {
+      return res.status(400).json({ error: 'You do not belong to a family.' })
+    }
+
+    if (req.query.action === 'delete-category') {
+      const category = String(req.query.category || '')
+      if (!category) {
+        return res.status(400).json({ error: 'Please provide a category name.' })
+      }
+
+      await prisma.medicine.updateMany({
+        where: { familyId, category },
+        data: { category: 'other' }
+      })
+
+      return res.json({ success: true })
+    }
+
+    return res.status(404).json({ error: 'Route not found.' })
+  } catch (error) {
+    console.error('Delete category failed:', error)
+    return res.status(500).json({ error: 'Server error.' })
   }
 })
 
@@ -134,22 +234,20 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const { id } = req.params
 
     if (!familyId) {
-      return res.status(400).json({ error: '您暂无家庭' })
+      return res.status(400).json({ error: 'You do not belong to a family.' })
     }
 
-    const medicine = await prisma.medicine.findFirst({
-      where: { id, familyId }
-    })
-
+    const medicine = await prisma.medicine.findFirst({ where: { id, familyId } })
     if (!medicine) {
-      return res.status(404).json({ error: '药品不存在' })
+      return res.status(404).json({ error: 'Medicine not found.' })
     }
 
+    await prisma.reminder.deleteMany({ where: { medicineId: id, familyId } })
     await prisma.medicine.delete({ where: { id } })
-    res.json({ success: true })
+    return res.json({ success: true })
   } catch (error) {
-    console.error('删除药品错误:', error)
-    res.status(500).json({ error: '服务器错误' })
+    console.error('Delete medicine failed:', error)
+    return res.status(500).json({ error: 'Server error.' })
   }
 })
 

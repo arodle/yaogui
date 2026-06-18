@@ -9,7 +9,7 @@ const prisma = new PrismaClient()
 async function getUserFamilyId(userId: string): Promise<string | null> {
   const member = await prisma.familyMember.findFirst({
     where: { userId },
-    orderBy: { joinedAt: 'asc' }
+    orderBy: { joinedAt: 'desc' }
   })
   return member?.familyId || null
 }

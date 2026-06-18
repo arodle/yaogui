@@ -35,3 +35,4 @@ pnpm-debug.log*
 
 # Prisma 迁移产物
 prisma/migrations/
+.vercel

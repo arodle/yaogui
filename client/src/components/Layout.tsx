@@ -1,6 +1,7 @@
-import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Home, Pill, Calendar, Bell, User, LogOut } from 'lucide-react'
+﻿import { Outlet, Link, useLocation } from 'react-router-dom'
+import { Home, Pill, Calendar, Bell, User, LogOut, Info } from 'lucide-react'
 import { useAuthStore } from '../context/AuthContext'
+import { api } from '../api'
 
 const navItems = [
   { path: '/', icon: Home, label: '首页' },
@@ -13,6 +14,7 @@ const navItems = [
 export function Layout() {
   const location = useLocation()
   const { logout } = useAuthStore()
+  const isDemoMode = api.isDemo()
 
   const handleLogout = () => {
     logout()
@@ -21,7 +23,7 @@ export function Layout() {
 
   return (
     <div className="min-h-screen flex">
-      {/* 桌面端侧边栏 */}
+      {/* 妗岄潰绔晶杈规爮 */}
       <aside className="hidden lg:flex flex-col w-64 bg-white border-r border-gray-100 p-4">
         <div className="flex items-center gap-3 px-4 py-5">
           <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
@@ -62,7 +64,7 @@ export function Layout() {
         </button>
       </aside>
 
-      {/* 移动端底部导航 */}
+      {/* 绉诲姩绔簳閮ㄥ鑸?*/}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-2 py-2 z-50">
         <div className="flex justify-around">
           {navItems.map(({ path, icon: Icon, label }) => {
@@ -83,9 +85,15 @@ export function Layout() {
         </div>
       </div>
 
-      {/* 主内容区 */}
+      {/* 涓诲唴瀹瑰尯 */}
       <main className="flex-1 lg:p-8 p-4 pb-20 lg:pb-8 overflow-auto">
         <div className="max-w-6xl mx-auto">
+          {isDemoMode && (
+            <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>当前为本地模式，数据仅保存在这台设备上；Neon 恢复后可重新登录使用云端数据。</span>
+            </div>
+          )}
           <Outlet />
         </div>
       </main>
