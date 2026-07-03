@@ -1,10 +1,13 @@
 import { Router, Response } from 'express'
-import { Medicine, PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
 import { createSignedOssReadUrl, normalizeOssStorageUrl } from '../lib/oss.js'
 
 const router = Router()
 const prisma = new PrismaClient()
+
+type MedicineCategoryRow = { category: string }
+type MedicineRow = { photo: string | null; [key: string]: unknown }
 
 async function getUserFamilyId(userId: string): Promise<string | null> {
   const member = await prisma.familyMember.findFirst({
@@ -28,7 +31,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         where: { familyId },
         select: { category: true }
       })
-      const categories = Array.from(new Set(medicines.map((medicine: Pick<Medicine, 'category'>) => medicine.category).filter(Boolean)))
+      const categories = Array.from(new Set(medicines.map((medicine: MedicineCategoryRow) => medicine.category).filter(Boolean)))
       return res.json({ categories })
     }
 
@@ -38,7 +41,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     })
 
     return res.json({
-      medicines: medicines.map((medicine: Medicine) => ({
+      medicines: medicines.map((medicine: MedicineRow) => ({
         ...medicine,
         photo: medicine.photo ? createSignedOssReadUrl(medicine.photo) : null
       }))

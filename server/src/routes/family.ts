@@ -1,14 +1,14 @@
 import { Router, Response } from 'express'
-import { Prisma, PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
 const prisma = new PrismaClient()
 
-type FamilyMemberWithUser = Prisma.FamilyMemberGetPayload<{
-  include: { user: { select: { id: true; name: true; email: true } } }
-}>
-
+type FamilyMemberWithUser = {
+  joinedAt: Date
+  user: { id: string; name: string; email: string }
+}
 
 function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'

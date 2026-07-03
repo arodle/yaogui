@@ -1,12 +1,15 @@
 import { Router, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import { Prisma, PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
 const prisma = new PrismaClient()
 const JWT_SECRET = process.env.JWT_SECRET || 'medicine-cabinet-secret-key'
+
+type TransactionClient = Pick<PrismaClient, 'user' | 'family' | 'familyMember'>
+
 
 function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -34,7 +37,7 @@ router.post('/register', async (req, res) => {
 
     let user
     try {
-      user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      user = await prisma.$transaction(async (tx: TransactionClient) => {
         const createdUser = await tx.user.create({
           data: { email, password: hashedPassword, name }
         })
