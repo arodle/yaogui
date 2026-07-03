@@ -1,9 +1,14 @@
-﻿import { Router, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { Router, Response } from 'express'
+import { Prisma, PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
 const prisma = new PrismaClient()
+
+type FamilyMemberWithUser = Prisma.FamilyMemberGetPayload<{
+  include: { user: { select: { id: true; name: true; email: true } } }
+}>
+
 
 function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -46,7 +51,7 @@ router.get('/my', async (req: AuthRequest, res: Response) => {
 
     return res.json({
       family: member.family,
-      members: members.map((familyMember) => ({
+      members: members.map((familyMember: FamilyMemberWithUser) => ({
         userId: familyMember.user.id,
         name: familyMember.user.name,
         email: familyMember.user.email,
@@ -80,7 +85,7 @@ router.get('/members', async (req: AuthRequest, res: Response) => {
     })
 
     return res.json({
-      members: members.map((familyMember) => ({
+      members: members.map((familyMember: FamilyMemberWithUser) => ({
         userId: familyMember.user.id,
         name: familyMember.user.name,
         email: familyMember.user.email,

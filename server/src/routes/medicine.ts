@@ -1,5 +1,5 @@
-﻿import { Router, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { Router, Response } from 'express'
+import { Medicine, PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
 import { createSignedOssReadUrl, normalizeOssStorageUrl } from '../lib/oss.js'
 
@@ -28,7 +28,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         where: { familyId },
         select: { category: true }
       })
-      const categories = Array.from(new Set(medicines.map((medicine) => medicine.category).filter(Boolean)))
+      const categories = Array.from(new Set(medicines.map((medicine: Pick<Medicine, 'category'>) => medicine.category).filter(Boolean)))
       return res.json({ categories })
     }
 
@@ -38,7 +38,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     })
 
     return res.json({
-      medicines: medicines.map((medicine) => ({
+      medicines: medicines.map((medicine: Medicine) => ({
         ...medicine,
         photo: medicine.photo ? createSignedOssReadUrl(medicine.photo) : null
       }))

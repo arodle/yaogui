@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import { PrismaClient } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
@@ -34,7 +34,7 @@ router.post('/register', async (req, res) => {
 
     let user
     try {
-      user = await prisma.$transaction(async (tx) => {
+      user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const createdUser = await tx.user.create({
           data: { email, password: hashedPassword, name }
         })
