@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -294,7 +294,7 @@ export function Medicines() {
                   className="group relative aspect-square rounded-2xl overflow-hidden shadow-sm bg-white hover:shadow-lg transition-all hover:-translate-y-0.5"
                 >
                   {medicine.photo ? (
-                    <img src={medicine.photo} alt={medicine.name} className="w-full h-full object-cover" />
+                    <img src={medicine.photo} alt={medicine.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
                       <Pill className="w-8 h-8 text-gray-300" />

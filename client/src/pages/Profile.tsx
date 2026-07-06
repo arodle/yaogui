@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   User,
@@ -47,13 +47,10 @@ export function Profile() {
 
   const loadFamilyInfo = async () => {
     try {
-      const [familyRes, medicinesRes] = await Promise.all([
-        api.family.get(),
-        api.medicines.list()
-      ])
+      const familyRes = await api.family.get()
       setFamily(familyRes.family || null)
       setMembers(familyRes.members || [])
-      setMedicineCount(medicinesRes.medicines?.length || 0)
+      setMedicineCount(familyRes.medicineCount || 0)
     } catch (error) {
       console.error('加载个人信息失败', error)
     } finally {
