@@ -1,4 +1,4 @@
-﻿const DEMO_MODE_KEY = 'medicine-cabinet-demo'
+const DEMO_MODE_KEY = 'medicine-cabinet-demo'
 const DEMO_USER_KEY = 'medicine-cabinet-demo-user'
 const DEMO_TOKEN = 'demo-token'
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -597,7 +597,7 @@ export const api = {
     removeMember: (userId: string) => request(`/family/members/${userId}`, { method: 'DELETE' })
   },
   medicines: {
-    list: () => request('/medicines'),
+    list: (options?: { includePhotos?: boolean }) => request(options?.includePhotos === false ? '/medicines?includePhotos=false' : '/medicines'),
     listCategories: () => request('/medicines?action=categories'),
     renameCategory: (fromCategory: string, toCategory: string) =>
       request('/medicines?action=rename-category', { method: 'PUT', body: JSON.stringify({ fromCategory, toCategory }) }),
@@ -608,7 +608,13 @@ export const api = {
     delete: (id: string) => request(`/medicines/${id}`, { method: 'DELETE' })
   },
   records: {
-    list: (_params?: any) => request('/records'),
+    list: (params?: { startDate?: string; endDate?: string }) => {
+      const query = new URLSearchParams()
+      if (params?.startDate) query.set('startDate', params.startDate)
+      if (params?.endDate) query.set('endDate', params.endDate)
+      const suffix = query.toString()
+      return request(suffix ? `/records?${suffix}` : '/records')
+    },
     create: (data: { medicineId: string; takenAt: string; status: string }) =>
       request('/records', { method: 'POST', body: JSON.stringify(data) })
   },

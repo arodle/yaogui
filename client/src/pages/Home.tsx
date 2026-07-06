@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Clock, AlertTriangle, CheckCircle, Pill } from 'lucide-react'
 import { api } from '../api'
@@ -40,9 +40,13 @@ export function Home() {
 
   const loadData = async () => {
     try {
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+      const tomorrowStart = new Date(todayStart)
+      tomorrowStart.setDate(tomorrowStart.getDate() + 1)
       const [medicinesRes, recordsRes, remindersRes] = await Promise.all([
-        api.medicines.list(),
-        api.records.list(),
+        api.medicines.list({ includePhotos: false }),
+        api.records.list({ startDate: todayStart.toISOString(), endDate: tomorrowStart.toISOString() }),
         api.reminders.list().catch(() => ({ reminders: [] }))
       ])
 

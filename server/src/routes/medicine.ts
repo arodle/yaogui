@@ -40,10 +40,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       orderBy: { createdAt: 'desc' }
     })
 
+    const includePhotos = req.query.includePhotos !== 'false'
     return res.json({
       medicines: medicines.map((medicine: MedicineRow) => ({
         ...medicine,
-        photo: medicine.photo ? createSignedOssReadUrl(medicine.photo) : null
+        photo: includePhotos && medicine.photo ? createSignedOssReadUrl(medicine.photo) : null
       }))
     })
   } catch (error) {
