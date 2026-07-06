@@ -8,6 +8,25 @@ const MED_STORE = 'demo-medicines'
 const REC_STORE = 'demo-records'
 const REM_STORE = 'demo-reminders'
 
+function canUseDemoMode() {
+  if (typeof window === 'undefined') return false
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+}
+
+if (typeof window !== 'undefined' && !canUseDemoMode()) {
+  localStorage.removeItem(DEMO_MODE_KEY)
+  localStorage.removeItem(DEMO_USER_KEY)
+
+  try {
+    const auth = JSON.parse(localStorage.getItem('auth-storage') || '{}')
+    if (auth.state?.token === DEMO_TOKEN) {
+      localStorage.removeItem('auth-storage')
+    }
+  } catch {
+    localStorage.removeItem('auth-storage')
+  }
+}
+
 type DemoUser = { id: string; email: string; name: string }
 type DemoFamily = { id: string; name: string; inviteCode: string; createdBy: string; createdAt: string }
 type DemoMember = { userId: string; familyId: string; joinedAt: string; name: string; role: 'owner' | 'member' }
@@ -186,11 +205,14 @@ function getAuthToken() {
 }
 
 function enableDemo() {
+  if (!canUseDemoMode()) {
+    throw new Error('Demo mode is only available on localhost')
+  }
   localStorage.setItem(DEMO_MODE_KEY, '1')
 }
 
 function isDemo() {
-  return localStorage.getItem(DEMO_MODE_KEY) === '1'
+  return canUseDemoMode() && localStorage.getItem(DEMO_MODE_KEY) === '1'
 }
 
 function seedDemoIfEmpty() {
@@ -248,15 +270,18 @@ async function request(endpoint: string, options: RequestInit = {}) {
     }
     return response.json()
   } catch (error) {
-    if (endpoint === '/auth/login' || endpoint === '/auth/register' || endpoint === '/auth/me') {
-      enableDemo()
-      return mockRequest(endpoint, options)
+    if (canUseDemoMode()) {
+      if (endpoint === '/auth/login' || endpoint === '/auth/register' || endpoint === '/auth/me') {
+        enableDemo()
+        return mockRequest(endpoint, options)
+      }
+
+      if (!endpoint.startsWith('/auth') && !endpoint.startsWith('/family') && !endpoint.startsWith('/ocr')) {
+        return mockRequest(endpoint, options)
+      }
     }
 
-    if (endpoint.startsWith('/auth') || endpoint.startsWith('/family') || endpoint.startsWith('/ocr')) {
-      throw error
-    }
-    return mockRequest(endpoint, options)
+    throw error
   }
 }
 
