@@ -20,20 +20,54 @@ import { PieChartSummary } from '../components/PieChartSummary'
 import { uploadImageToOss } from '../utils/imageUpload'
 
 function MedicinePhoto({ photo, name }: { photo: string; name: string }) {
-  const [src, setSrc] = useState(photo.startsWith('auth-photo:') ? '' : photo)
+  const holderRef = useRef<HTMLDivElement>(null)
+  const isAuthPhoto = photo.startsWith('auth-photo:')
+  const [shouldLoad, setShouldLoad] = useState(!isAuthPhoto)
+  const [src, setSrc] = useState(isAuthPhoto ? '' : photo)
 
   useEffect(() => {
+    if (!isAuthPhoto) {
+      setShouldLoad(true)
+      setSrc(photo)
+      return
+    }
+
+    setShouldLoad(false)
+    setSrc('')
+
+    const target = holderRef.current
+    if (!target || typeof IntersectionObserver === 'undefined') {
+      setShouldLoad(true)
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShouldLoad(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '240px' }
+    )
+
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [isAuthPhoto, photo])
+
+  useEffect(() => {
+    if (!shouldLoad) return
+
     let objectUrl = ''
     let cancelled = false
 
     async function loadPhoto() {
-      if (!photo.startsWith('auth-photo:')) {
+      if (!isAuthPhoto) {
         setSrc(photo)
         return
       }
 
       try {
-        setSrc('')
         const id = photo.replace('auth-photo:', '')
         const blob = await api.medicines.fetchPhoto(id)
         if (cancelled) return
@@ -50,11 +84,11 @@ function MedicinePhoto({ photo, name }: { photo: string; name: string }) {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [photo])
+  }, [isAuthPhoto, photo, shouldLoad])
 
   if (!src) {
     return (
-      <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+      <div ref={holderRef} className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
         <ImageIcon className="w-8 h-8 text-gray-300" />
       </div>
     )

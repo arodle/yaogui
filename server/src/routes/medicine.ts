@@ -7,7 +7,20 @@ const router = Router()
 const prisma = new PrismaClient()
 
 type MedicineCategoryRow = { category: string }
-type MedicineRow = { photo: string | null; [key: string]: unknown }
+type MedicineRow = { id?: string; photo: string | null; [key: string]: unknown }
+type MedicineListRow = {
+  id: string
+  family_id: string
+  name: string
+  category: string
+  disease_category: string
+  quantity: number
+  unit: string
+  expiry_date: Date | null
+  threshold: number
+  created_at: Date
+  has_photo: boolean
+}
 
 function isDataImage(value: string | null | undefined) {
   return typeof value === 'string' && value.startsWith('data:image/')
@@ -53,16 +66,38 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return res.json({ categories })
     }
 
-    const medicines = await prisma.medicine.findMany({
-      where: { familyId },
-      orderBy: { createdAt: 'desc' }
-    })
+    const medicines = await prisma.$queryRaw<MedicineListRow[]>`
+      SELECT
+        id,
+        family_id,
+        name,
+        category,
+        disease_category,
+        quantity,
+        unit,
+        expiry_date,
+        threshold,
+        created_at,
+        (photo IS NOT NULL) AS has_photo
+      FROM medicines
+      WHERE family_id = ${familyId}
+      ORDER BY created_at DESC
+    `
 
     const includePhotos = req.query.includePhotos !== 'false'
     return res.json({
-      medicines: medicines.map((medicine: MedicineRow) => ({
-        ...medicine,
-        photo: serializeMedicinePhoto(medicine, includePhotos)
+      medicines: medicines.map((medicine) => ({
+        id: medicine.id,
+        familyId: medicine.family_id,
+        name: medicine.name,
+        category: medicine.category,
+        diseaseCategory: medicine.disease_category,
+        quantity: medicine.quantity,
+        unit: medicine.unit,
+        expiryDate: medicine.expiry_date,
+        threshold: medicine.threshold,
+        createdAt: medicine.created_at,
+        photo: includePhotos && medicine.has_photo ? `auth-photo:${medicine.id}` : null
       }))
     })
   } catch (error) {
