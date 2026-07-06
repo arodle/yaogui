@@ -10,7 +10,8 @@ const REM_STORE = 'demo-reminders'
 
 function canUseDemoMode() {
   if (typeof window === 'undefined') return false
-  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  return isLocalHost && new URLSearchParams(window.location.search).get('demo') === '1'
 }
 
 if (typeof window !== 'undefined' && !canUseDemoMode()) {
