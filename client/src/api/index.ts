@@ -286,6 +286,20 @@ async function request(endpoint: string, options: RequestInit = {}) {
   }
 }
 
+async function requestBlob(endpoint: string) {
+  const token = getAuthToken()
+  const headers: HeadersInit = {}
+
+  if (token) {
+    ;(headers as Record<string, string>).Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(API_BASE + endpoint, { headers })
+  if (!response.ok) {
+    throw new Error('图片加载失败')
+  }
+  return response.blob()
+}
 function mockRequest(endpoint: string, options: RequestInit = {}) {
   const method = options.method || 'GET'
   const body = options.body ? JSON.parse(options.body as string) : {}
@@ -605,7 +619,8 @@ export const api = {
       request(`/medicines?action=delete-category&category=${encodeURIComponent(category)}`, { method: 'DELETE' }),
     create: (data: any) => request('/medicines', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: any) => request(`/medicines/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: string) => request(`/medicines/${id}`, { method: 'DELETE' })
+    delete: (id: string) => request(`/medicines/${id}`, { method: 'DELETE' }),
+    fetchPhoto: (id: string) => requestBlob(`/medicines/${id}/photo`)
   },
   records: {
     list: (params?: { startDate?: string; endDate?: string }) => {

@@ -3,7 +3,9 @@ import { resolve } from 'node:path'
 import crypto from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 
-process.loadEnvFile?.(resolve(process.cwd(), '..', '.env'))
+if (!process.env.DATABASE_URL) {
+  process.loadEnvFile?.(resolve(process.cwd(), '..', '.env'))
+}
 
 const prisma = new PrismaClient()
 

@@ -9,6 +9,24 @@ const prisma = new PrismaClient()
 type MedicineCategoryRow = { category: string }
 type MedicineRow = { photo: string | null; [key: string]: unknown }
 
+function isDataImage(value: string | null | undefined) {
+  return typeof value === 'string' && value.startsWith('data:image/')
+}
+
+function parseDataImage(value: string) {
+  const match = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
+  if (!match) return null
+  return {
+    contentType: match[1],
+    buffer: Buffer.from(match[2], 'base64')
+  }
+}
+
+function serializeMedicinePhoto(medicine: MedicineRow, includePhotos: boolean) {
+  if (!includePhotos || !medicine.photo) return null
+  if (isDataImage(medicine.photo)) return `auth-photo:${medicine.id}`
+  return createSignedOssReadUrl(medicine.photo)
+}
 async function getUserFamilyId(userId: string): Promise<string | null> {
   const member = await prisma.familyMember.findFirst({
     where: { userId },
@@ -44,7 +62,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     return res.json({
       medicines: medicines.map((medicine: MedicineRow) => ({
         ...medicine,
-        photo: includePhotos && medicine.photo ? createSignedOssReadUrl(medicine.photo) : null
+        photo: serializeMedicinePhoto(medicine, includePhotos)
       }))
     })
   } catch (error) {
@@ -53,6 +71,39 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
+router.get('/:id/photo', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const familyId = await getUserFamilyId(userId)
+    const { id } = req.params
+
+    if (!familyId) {
+      return res.status(404).json({ error: 'Medicine photo not found.' })
+    }
+
+    const medicine = await prisma.medicine.findFirst({
+      where: { id, familyId },
+      select: { photo: true }
+    })
+
+    if (!medicine?.photo) {
+      return res.status(404).json({ error: 'Medicine photo not found.' })
+    }
+
+    if (isDataImage(medicine.photo)) {
+      const parsed = parseDataImage(medicine.photo)
+      if (!parsed) return res.status(404).json({ error: 'Medicine photo not found.' })
+      res.setHeader('Content-Type', parsed.contentType)
+      res.setHeader('Cache-Control', 'private, max-age=3600')
+      return res.send(parsed.buffer)
+    }
+
+    return res.redirect(createSignedOssReadUrl(medicine.photo))
+  } catch (error) {
+    console.error('Get medicine photo failed:', error)
+    return res.status(500).json({ error: 'Server error.' })
+  }
+})
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId!

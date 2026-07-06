@@ -1,7 +1,7 @@
 import { api } from '../api'
 
-const MAX_IMAGE_SIZE = 1600
-const IMAGE_QUALITY = 0.78
+const MAX_IMAGE_SIZE = 1024
+const IMAGE_QUALITY = 0.72
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
   return new Promise<Blob>((resolve, reject) => {

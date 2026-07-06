@@ -19,6 +19,49 @@ import { buildDiseaseOptions, getDiseaseMeta } from '../constants/diseaseCategor
 import { PieChartSummary } from '../components/PieChartSummary'
 import { uploadImageToOss } from '../utils/imageUpload'
 
+function MedicinePhoto({ photo, name }: { photo: string; name: string }) {
+  const [src, setSrc] = useState(photo.startsWith('auth-photo:') ? '' : photo)
+
+  useEffect(() => {
+    let objectUrl = ''
+    let cancelled = false
+
+    async function loadPhoto() {
+      if (!photo.startsWith('auth-photo:')) {
+        setSrc(photo)
+        return
+      }
+
+      try {
+        setSrc('')
+        const id = photo.replace('auth-photo:', '')
+        const blob = await api.medicines.fetchPhoto(id)
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setSrc(objectUrl)
+      } catch {
+        if (!cancelled) setSrc('')
+      }
+    }
+
+    void loadPhoto()
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [photo])
+
+  if (!src) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <ImageIcon className="w-8 h-8 text-gray-300" />
+      </div>
+    )
+  }
+
+  return <img src={src} alt={name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+}
 interface Medicine {
   id: string
   name: string
@@ -294,7 +337,7 @@ export function Medicines() {
                   className="group relative aspect-square rounded-2xl overflow-hidden shadow-sm bg-white hover:shadow-lg transition-all hover:-translate-y-0.5"
                 >
                   {medicine.photo ? (
-                    <img src={medicine.photo} alt={medicine.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    <MedicinePhoto photo={medicine.photo} name={medicine.name} />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
                       <Pill className="w-8 h-8 text-gray-300" />

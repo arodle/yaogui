@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Camera, Minus, PackagePlus, Plus, Trash2, Upload, X } from 'lucide-react'
 import { api } from '../api'
@@ -151,7 +151,7 @@ export function AddMedicine() {
     setLoading(true)
 
     try {
-      const payload = {
+      const payload: any = {
         name: form.name,
         category: customCategory.trim() || form.category,
         diseaseCategory: customDiseaseCategory.trim() || form.diseaseCategory,
@@ -161,6 +161,10 @@ export function AddMedicine() {
         expiryDate: form.expiryDate || null,
         threshold: parseInt(form.threshold, 10) || 10,
         reminderTimes: reminderTimes.filter(Boolean)
+      }
+
+      if (isEditing && typeof payload.photo === 'string' && payload.photo.startsWith('auth-photo:')) {
+        delete payload.photo
       }
 
       if (isEditing && medicineId) {
