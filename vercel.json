@@ -1,15 +1,15 @@
 {
   "installCommand": "npm install && npx prisma generate",
-  "buildCommand": "npm run build",
+  "buildCommand": "VITE_API_BASE=/remote-api npm run build",
   "outputDirectory": "client/dist",
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/api/:path*",
+      "source": "/remote-api/:path*",
       "destination": "http://152.136.139.29/api/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|remote-api/).*)",
       "destination": "/"
     }
   ]
