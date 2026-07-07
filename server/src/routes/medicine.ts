@@ -1,10 +1,14 @@
 import { Router, Response } from 'express'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import sharp from 'sharp'
 import { PrismaClient } from '@prisma/client'
 import { AuthRequest } from '../middleware/auth.js'
 import { createSignedOssReadUrl, normalizeOssStorageUrl } from '../lib/oss.js'
 
 const router = Router()
 const prisma = new PrismaClient()
+const THUMBNAIL_DIR = path.resolve(process.cwd(), '.cache', 'medicine-photos')
 
 type MedicineCategoryRow = { category: string }
 type MedicineRow = { id?: string; photo: string | null; [key: string]: unknown }
@@ -39,6 +43,29 @@ function serializeMedicinePhoto(medicine: MedicineRow, includePhotos: boolean) {
   if (!includePhotos || !medicine.photo) return null
   if (isDataImage(medicine.photo)) return `auth-photo:${medicine.id}`
   return createSignedOssReadUrl(medicine.photo)
+}
+
+async function readCachedThumbnail(id: string) {
+  try {
+    return await fs.readFile(path.join(THUMBNAIL_DIR, `${id}.jpg`))
+  } catch {
+    return null
+  }
+}
+
+async function getCachedThumbnail(id: string, buffer: Buffer) {
+  const cached = await readCachedThumbnail(id)
+  if (cached) return cached
+
+  await fs.mkdir(THUMBNAIL_DIR, { recursive: true })
+  const thumbnail = await sharp(buffer)
+    .rotate()
+    .resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 72, mozjpeg: true })
+    .toBuffer()
+
+  await fs.writeFile(path.join(THUMBNAIL_DIR, `${id}.jpg`), thumbnail)
+  return thumbnail
 }
 async function getUserFamilyId(userId: string): Promise<string | null> {
   const member = await prisma.familyMember.findFirst({
@@ -116,6 +143,22 @@ router.get('/:id/photo', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Medicine photo not found.' })
     }
 
+    const access = await prisma.medicine.findFirst({
+      where: { id, familyId },
+      select: { id: true }
+    })
+
+    if (!access) {
+      return res.status(404).json({ error: 'Medicine photo not found.' })
+    }
+
+    const cachedThumbnail = await readCachedThumbnail(id)
+    if (cachedThumbnail) {
+      res.setHeader('Content-Type', 'image/jpeg')
+      res.setHeader('Cache-Control', 'private, max-age=86400')
+      return res.send(cachedThumbnail)
+    }
+
     const medicine = await prisma.medicine.findFirst({
       where: { id, familyId },
       select: { photo: true }
@@ -128,9 +171,10 @@ router.get('/:id/photo', async (req: AuthRequest, res: Response) => {
     if (isDataImage(medicine.photo)) {
       const parsed = parseDataImage(medicine.photo)
       if (!parsed) return res.status(404).json({ error: 'Medicine photo not found.' })
-      res.setHeader('Content-Type', parsed.contentType)
-      res.setHeader('Cache-Control', 'private, max-age=3600')
-      return res.send(parsed.buffer)
+      const thumbnail = await getCachedThumbnail(id, parsed.buffer)
+      res.setHeader('Content-Type', 'image/jpeg')
+      res.setHeader('Cache-Control', 'private, max-age=86400')
+      return res.send(thumbnail)
     }
 
     return res.redirect(createSignedOssReadUrl(medicine.photo))
