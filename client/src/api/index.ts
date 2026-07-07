@@ -1,7 +1,7 @@
 const DEMO_MODE_KEY = 'medicine-cabinet-demo'
 const DEMO_USER_KEY = 'medicine-cabinet-demo-user'
 const DEMO_TOKEN = 'demo-token'
-const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/remote-api' : '/api')
 const FAM_STORE = 'demo-families'
 const MEMBER_STORE = 'demo-members'
 const MED_STORE = 'demo-medicines'
